@@ -71,16 +71,17 @@ canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 .lobby .slot .buttons { gap: 5px; }
 .lobby .panel h2 { font-size: 26px; margin-bottom: 6px; }
 @media (max-width: 1000px) { .lobby { grid-template-columns: 1fr; overflow: auto; } }
-.race-setup { display: flex; flex-direction: column; gap: 8px; }
+.race-setup { display: flex; flex-direction: column; gap: 7px; }
+.race-setup .btn.big { font-size: 28px; padding: 6px 30px 8px; }
 .race-setup .hint { margin: 0; min-height: 1.2em; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font: 20px var(--display); }
 .track-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .world-name { grid-column: 1 / -1; font: 14px var(--display); text-transform: uppercase; letter-spacing: 0.08em; color: var(--soft); margin: 2px 0 -3px; }
-.track-card { text-align: left; background: #fff; border: 2.5px solid var(--ink); border-radius: 12px; padding: 5px 10px 6px; cursor: pointer; box-shadow: 0 3px 0 var(--ink); font: 17px var(--display); letter-spacing: 0.01em; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-card { text-align: left; background: #fff; border: 2.5px solid var(--ink); border-radius: 12px; padding: 4px 9px 5px; cursor: pointer; box-shadow: 0 3px 0 var(--ink); font: 15.5px var(--display); letter-spacing: 0.01em; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-card:hover { transform: translateY(-1px); }
 .track-card[aria-pressed="true"] { background: var(--yellow); }
-#track-preview { width: 100%; height: auto; background: var(--paper2); border: 2.5px solid var(--ink); border-radius: 14px; }
-.blurb { margin: -2px 2px 0; font-size: 13.5px; color: var(--soft); min-height: 2.4em; }
+#track-preview { width: 100%; height: auto; max-height: 23vh; object-fit: contain; background: var(--paper2); border: 2.5px solid var(--ink); border-radius: 14px; }
+.blurb { margin: -2px 2px 0; font-size: 13px; line-height: 1.3; color: var(--soft); min-height: 2.6em; }
 .seg { display: inline-flex; background: var(--paper2); padding: 3px; border-radius: 12px; gap: 3px; border: 2px solid var(--ink); }
 .seg button { border: none; background: transparent; font: 18px var(--display); padding: 3px 11px; border-radius: 8px; cursor: pointer; color: var(--soft); }
 .seg button[aria-pressed="true"] { background: var(--yellow); color: var(--ink); box-shadow: inset 0 0 0 2px var(--ink); }

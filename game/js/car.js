@@ -9,8 +9,10 @@ import { UP, add, addScaled, clamp, copy, cross, dot, lerp, norm, reject, rotate
 const DOWN = { x: 0, y: -1, z: 0 };
 
 export class Car {
-  constructor(index, track, s, lateral = 0) {
+  // speedScale: the lobby's speed setting (1 = normal)
+  constructor(index, track, s, lateral = 0, speedScale = 1) {
     this.index = index;
+    this.speedScale = speedScale;
     this.respawnTimer = 0;
     this.steer = 0;
     this.drifting = false;
@@ -18,10 +20,10 @@ export class Car {
     this.placeOnTrack(track, s, lateral);
   }
 
-  placeOnTrack(track, s, lateral = 0) {
+  placeOnTrack(track, s, lateral = 0, speed = 0) {
     const f = track.frameAt(s);
     this.pos = add(addScaled(f.p, f.r, lateral), scale(f.n, 0.02));
-    this.vel = v3();
+    this.vel = scale(f.t, speed);
     this.fwd = copy(f.t);
     this.up = copy(f.n);
     this.grounded = true;
@@ -36,6 +38,26 @@ export class Car {
   }
 }
 
+// Where to put a car back on the track near arc length s: never in a gap or
+// a loop, and if a jump or loop is coming up too soon to get up to speed for
+// it, past it instead (so nobody gets stuck retrying the same jump).
+const RUN_UP = 150;
+const safeAt = (f) => !f.gap && !f.loop && f.n.y > 0.8;
+export function respawnSpot(track, s) {
+  for (let k = 0; k < 60 && !safeAt(track.frameAt(s)); k++) s -= 10;
+  for (let pass = 0; pass < 4; pass++) {
+    let hazard = -1;
+    for (let a = 0; a <= RUN_UP; a += 5) {
+      if (!safeAt(track.frameAt(s + a))) { hazard = s + a; break; }
+    }
+    if (hazard < 0) return s;
+    let e = hazard;
+    for (let k = 0; k < 400 && !safeAt(track.frameAt(e)); k++) e += 5;
+    s = e + 30;
+  }
+  return s;
+}
+
 // Advance one car by dt. input: { throttle 0..1, brake 0..1, steer -1..1 (right +), drift bool }.
 // Returns events: land, wall, fell, splash, respawned, driftStart, driftEnd.
 export function stepCar(car, inp, track, dt) {
@@ -44,14 +66,7 @@ export function stepCar(car, inp, track, dt) {
   if (car.respawnTimer > 0) {
     car.respawnTimer -= dt;
     if (car.respawnTimer <= 0) {
-      // back a little from the last safe spot, but never into a gap or a loop
-      let s = car.safeS - 25;
-      for (let k = 0; k < 60; k++) {
-        const f = track.frameAt(s);
-        if (!f.gap && !f.loop && f.n.y > 0.8) break;
-        s -= 10;
-      }
-      car.placeOnTrack(track, s, 0);
+      car.placeOnTrack(track, respawnSpot(track, car.safeS - 25), 0, CFG.MAX_SPEED * car.speedScale * 0.35);
       ev.push({ type: 'respawned' });
     }
     return ev;
@@ -95,14 +110,15 @@ export function stepCar(car, inp, track, dt) {
     car.pos = addScaled(car.pos, n, -sup.h);
     car.up = n;
     let f = norm(reject(car.fwd, n));
-    let side = norm(cross(f, n)); // points to the car's right
     const v0 = reject(car.vel, n);
-    let vf = dot(v0, f), vs = dot(v0, side);
+    const fwdSpeed = dot(v0, f);
     const offroad = sup.kind !== 'track';
-    const maxS = offroad ? CFG.OFFROAD_MAX : CFG.MAX_SPEED;
+    const k = car.speedScale;
+    const top = CFG.MAX_SPEED * k;
+    const maxS = offroad ? CFG.OFFROAD_MAX * Math.min(1, k) : top;
 
     // Drift: hold drift while turning at speed; slides with less grip but turns tighter.
-    if (inp.drift && vf > CFG.DRIFT_MIN_SPEED && !offroad) {
+    if (inp.drift && fwdSpeed > CFG.DRIFT_MIN_SPEED * k && !offroad) {
       if (!car.drifting && Math.abs(car.steer) > 0.25) {
         car.drifting = true;
         car.driftDir = Math.sign(car.steer);
@@ -113,16 +129,18 @@ export function stepCar(car, inp, track, dt) {
       ev.push({ type: 'driftEnd' });
     }
 
-    // Steering: little effect when crawling, a bit less at top speed.
-    const speedK = clamp(Math.abs(vf) / 70, 0, 1) * (1 - 0.3 * clamp(Math.abs(vf) / CFG.MAX_SPEED, 0, 1));
+    // Steering turns the car; its momentum then catches up (grip), so it
+    // slides a little in corners and a lot when drifting.
+    const speedK = clamp(Math.abs(fwdSpeed) / CFG.STEER_FULL_AT, 0, 1) * (1 - 0.3 * clamp(Math.abs(fwdSpeed) / top, 0, 1));
     let steer = car.steer;
     if (car.drifting) steer = clamp(car.driftDir * 0.55 + steer * 0.6, -1.2, 1.2);
-    const yaw = steer * CFG.STEER_RATE * speedK * (car.drifting ? CFG.DRIFT_STEER : 1) * (vf < -1 ? -1 : 1);
+    const yaw = steer * CFG.STEER_RATE * speedK * (car.drifting ? CFG.DRIFT_STEER : 1) * (fwdSpeed < -1 ? -1 : 1);
     f = norm(rotate(f, n, -yaw * dt));
-    side = norm(cross(f, n));
+    const side = norm(cross(f, n)); // points to the car's right
+    let vf = dot(v0, f), vs = dot(v0, side);
 
     // Engine, brakes (brake past zero = reverse), drag.
-    if (inp.throttle > 0 && vf < maxS) vf += CFG.ACCEL * inp.throttle * (1 - Math.max(0, vf) / maxS) * dt;
+    if (inp.throttle > 0 && vf < maxS) vf += CFG.ACCEL * k * inp.throttle * (1 - Math.max(0, vf) / maxS) * dt;
     if (inp.brake > 0 && !car.drifting) {
       if (vf > 2) vf = Math.max(0, vf - CFG.BRAKE * inp.brake * dt);
       else vf = Math.max(-CFG.REVERSE_MAX, vf - CFG.REVERSE_ACCEL * inp.brake * dt);
@@ -139,8 +157,9 @@ export function stepCar(car, inp, track, dt) {
     vs *= Math.exp(-grip * dt);
 
     let vel = add(scale(f, vf), scale(side, vs));
-    // Slopes: toy-car gravity (gentler than real, or nobody could climb the table ramp).
-    vel = addScaled(vel, reject(scale(DOWN, CFG.GRAVITY), n), CFG.SLOPE_GRAVITY * dt);
+    // Slopes pull you back (or speed you up), a bit less in loops.
+    const slope = sup.kind === 'track' && loc.loop ? CFG.LOOP_GRAVITY : CFG.SLOPE_GRAVITY;
+    vel = addScaled(vel, reject(scale(DOWN, CFG.GRAVITY), n), slope * dt);
     car.fwd = f;
     car.vel = vel;
     car.pos = addScaled(car.pos, vel, dt);
@@ -156,8 +175,8 @@ export function stepCar(car, inp, track, dt) {
         const vOut = dot(car.vel, l2.r) * out;
         if (vOut > 0) {
           car.vel = addScaled(car.vel, l2.r, -vOut * out * 1.25);
-          car.vel = scale(car.vel, 1 - Math.min(0.25, vOut / 500));
-          if (vOut > 18) ev.push({ type: 'wall', impact: vOut });
+          car.vel = scale(car.vel, 1 - Math.min(0.25, vOut / 200));
+          if (vOut > 7) ev.push({ type: 'wall', impact: vOut });
         }
       }
     }
@@ -192,7 +211,7 @@ export function stepCar(car, inp, track, dt) {
     if (into < 0) {
       car.vel.x -= hit.x * into * 1.2;
       car.vel.z -= hit.z * into * 1.2;
-      if (-into > 25) ev.push({ type: 'wall', impact: -into });
+      if (-into > 10) ev.push({ type: 'wall', impact: -into });
     }
   }
 
@@ -215,10 +234,10 @@ export function stepCar(car, inp, track, dt) {
 
 // Steering that follows the track: used by finished cars, the title-screen
 // demo and the tests. (Not an opponent AI.)
-export function autopilot(car, track, lookahead = 34) {
+export function autopilot(car, track, lookahead = 26) {
   const s = car.loc ? car.loc.s : 0;
   // look less far ahead in loops, where the track bends sharply upward
-  const look = car.loc && car.loc.loop ? 14 : lookahead;
+  const look = car.loc && car.loc.loop ? 12 : lookahead;
   const target = track.frameAt(s + look).p;
   // work in the plane the car is driving on
   const to = norm(reject(sub(target, car.pos), car.up));

@@ -69,7 +69,7 @@ export class Effects {
       if (q.age >= q.life) { this.p.splice(i, 1); continue; }
     }
     for (const q of this.p) {
-      q.vy -= 980 * q.gravity * dt;
+      q.vy -= 420 * q.gravity * dt;
       const drag = Math.exp(-2.5 * dt * (q.gravity ? 0.3 : 1));
       q.vx *= drag; q.vz *= drag;
       if (!q.gravity) q.vy *= drag;

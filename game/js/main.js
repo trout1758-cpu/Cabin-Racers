@@ -43,12 +43,14 @@ window.addEventListener('resize', resize);
 // State
 // ---------------------------------------------------------------------------
 const settings = (() => {
-  let s = { track: TRACKS[0].id, laps: TRACKS[0].laps };
+  let s = { track: TRACKS[0].id, laps: TRACKS[0].laps, speed: 'normal' };
   try { s = Object.assign(s, JSON.parse(localStorage.getItem('cabin-racers') || '{}')); } catch (e) { /* private mode */ }
   if (!TRACKS.some((t) => t.id === s.track)) s.track = TRACKS[0].id;
+  if (!CFG.SPEEDS.some((x) => x.id === s.speed)) s.speed = 'normal';
   return s;
 })();
 const trackIndex = () => Math.max(0, TRACKS.findIndex((t) => t.id === settings.track));
+const speedScale = () => (CFG.SPEEDS.find((x) => x.id === settings.speed) || CFG.SPEEDS[1]).scale;
 const save = () => { try { localStorage.setItem('cabin-racers', JSON.stringify(settings)); } catch (e) { /* private mode */ } };
 
 const slots = CFG.PLAYERS.map((color, i) => ({ index: i, color, controller: null, ready: false }));
@@ -182,6 +184,14 @@ function buildLobby() {
       list.appendChild(b);
     }
   }
+  const speed = $('#set-speed');
+  for (const sp of CFG.SPEEDS) {
+    const b = document.createElement('button');
+    b.textContent = sp.name;
+    b.dataset.id = sp.id;
+    b.addEventListener('click', () => { settings.speed = sp.id; save(); audio.click(); refreshLobby(); });
+    speed.appendChild(b);
+  }
   const laps = $('#set-laps');
   for (let n = 1; n <= 5; n++) {
     const b = document.createElement('button');
@@ -223,6 +233,7 @@ function refreshLobby() {
   const def = TRACKS[trackIndex()];
   $('#track-blurb').textContent = `${def.world.name}: ${def.blurb || ''}`;
   [...$('#set-laps').children].forEach((b, k) => b.setAttribute('aria-pressed', String(k + 1 === settings.laps)));
+  [...$('#set-speed').children].forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.id === settings.speed)));
   drawTrackPreview($('#track-preview'), game.track);
   for (const s of slots) {
     const c = s.controller;
@@ -388,7 +399,7 @@ function startRace() {
   audio.unlock();
   game.players = players;
   loadTrack(trackIndex());
-  game.race = new Race(game.track, players.length, { laps: settings.laps });
+  game.race = new Race(game.track, players.length, { laps: settings.laps, speed: speedScale() });
   setCars(players.length, players.map((p) => p.color), players.map((p) => p.index + 1));
   effects.clear();
   views.setPlayers(players.length);
@@ -425,12 +436,12 @@ function eventEffects(events) {
   for (const e of events) {
     const car = e.player != null ? cars[e.player] : null;
     const mesh = e.player != null ? game.meshes[e.player] : null;
-    if (e.type === 'land' && car && e.impact > 40) {
-      effects.landing(car.pos, Math.min(1, e.impact / 250));
-      if (mesh) squashCar(mesh, Math.min(1, e.impact / 220));
+    if (e.type === 'land' && car && e.impact > 12) {
+      effects.landing(car.pos, Math.min(1, e.impact / 70));
+      if (mesh) squashCar(mesh, Math.min(1, e.impact / 60));
     } else if (e.type === 'splash' && e.pos) {
       effects.splash(e.pos);
-    } else if (e.type === 'wall' && car && e.impact > 40) {
+    } else if (e.type === 'wall' && car && e.impact > 14) {
       effects.sparks(car.pos, '#ffd34d', 4);
     } else if (e.type === 'bump') {
       const a = cars[e.a], b = cars[e.b];
@@ -445,7 +456,7 @@ function carEffects(dt) {
     if (car.respawnTimer > 0 || !car.grounded) continue;
     const f = car.fwd, u = car.up;
     const side = { x: f.y * u.z - f.z * u.y, y: f.z * u.x - f.x * u.z, z: f.x * u.y - f.y * u.x };
-    const rate = car.drifting ? 40 : car.surface !== 'track' && Math.abs(car.speed) > 50 ? 16 : 0;
+    const rate = car.drifting ? 40 : car.surface !== 'track' && Math.abs(car.speed) > 20 ? 16 : 0;
     if (!rate || Math.random() > rate * dt) continue;
     for (const s of [-1.7, 1.7]) {
       const p = { x: car.pos.x - f.x * 2.6 + side.x * s + u.x * 0.6, y: car.pos.y - f.y * 2.6 + side.y * s + u.y * 0.6, z: car.pos.z - f.z * 2.6 + side.z * s + u.z * 0.6 };
@@ -460,8 +471,8 @@ function handleRaceEvents(events) {
     switch (e.type) {
       case 'count': audio.beep(); game.players.forEach((_, i) => rumble(i, 40, 0.4)); break;
       case 'go': audio.go(); game.goFlash = 0.9; game.players.forEach((_, i) => rumble(i, 150, 0.8)); break;
-      case 'land': if (e.impact > 60) { audio.land(e.impact); rumble(e.player, 40 + e.impact * 0.15, Math.min(1, e.impact / 300)); } break;
-      case 'wall': audio.wall(e.impact); rumble(e.player, 35, Math.min(1, e.impact / 250)); break;
+      case 'land': if (e.impact > 15) { audio.land(e.impact * 3.5); rumble(e.player, 40 + e.impact * 0.6, Math.min(1, e.impact / 80)); } break;
+      case 'wall': audio.wall(e.impact * 2.5); rumble(e.player, 35, Math.min(1, e.impact / 90)); break;
       case 'bump': audio.bump(); rumble(e.a, 60, 0.6); rumble(e.b, 60, 0.6); break;
       case 'fell': audio.fall(); rumble(e.player, 300, 1); flash(e.player, 'Oops!', 1200, 'small'); break;
       case 'splash': audio.splash(); rumble(e.player, 350, 1); flash(e.player, 'Splash!', 1200, 'small'); break;

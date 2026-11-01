@@ -6,16 +6,17 @@ import { addScaled, dot, norm, sub } from './vec.js';
 const NO_INPUT = Object.freeze({ throttle: 0, brake: 0, steer: 0, drift: false });
 
 export class Race {
-  // opts: { laps }
+  // opts: { laps, speed (1 = normal) }
   constructor(track, playerCount, opts = {}) {
     this.track = track;
     this.laps = opts.laps || track.laps;
+    this.speed = opts.speed || 1;
     this.cars = [];
     for (let i = 0; i < playerCount; i++) {
       // two-wide grid behind the start line
       const row = Math.floor(i / 2), col = i % 2;
       const s = -10 - row * 15 - col * 5;
-      const car = new Car(i, track, s, (col ? 1 : -1) * track.width * 0.22);
+      const car = new Car(i, track, s, (col ? 1 : -1) * track.width * 0.22, this.speed);
       car.progress = s; // distance raced, cm (negative = behind the line)
       car.lastS = car.loc.s;
       car.lap = 1;
@@ -89,7 +90,7 @@ export class Race {
         }
       }
       // wrong way?
-      const backwards = dot(car.fwd, loc.t) < -0.4 && car.speed > 25 && near;
+      const backwards = dot(car.fwd, loc.t) < -0.4 && car.speed > 12 && near;
       car.wrongWay = backwards ? car.wrongWay + dt : 0;
     }
     this.collideCars(events);
@@ -138,7 +139,7 @@ export class Race {
           const j2 = -rel * 0.75;
           a.vel = addScaled(a.vel, n, -j2);
           b.vel = addScaled(b.vel, n, j2);
-          if (-rel > 30) events.push({ type: 'bump', a: i, b: j, impact: -rel });
+          if (-rel > 14) events.push({ type: 'bump', a: i, b: j, impact: -rel });
         }
       }
     }

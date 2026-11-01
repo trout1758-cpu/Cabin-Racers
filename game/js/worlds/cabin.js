@@ -1,5 +1,5 @@
 // Cozy Cabin: an open-plan log-cabin living room and kitchen.
-import { jump, loop } from '../trackKit.js';
+import { arc, jump, loop } from '../trackKit.js';
 import { box, cyl } from '../world.js';
 
 const legs = (x0, z0, x1, z1, top, t = 6, look = 'wood') => [
@@ -49,7 +49,7 @@ const world = {
     { p: 'chimney', x: 270, z: 20, w: 150, d: 40, y0: 120 },
     { p: 'lamp', x: 470, z: 520, y: 150 },
     { p: 'plant', x: 60, z: 555, s: 1 },
-    { p: 'plant', x: 860, z: 560, s: 0.8 },
+    { p: 'plant', x: 872, z: 300, s: 0.75 },
     { p: 'window', wall: 'n', at: 470, w: 140, h: 110, y: 95 },
     { p: 'window', wall: 'e', at: 330, w: 150, h: 100, y: 105 },
     { p: 'window', wall: 's', at: 620, w: 170, h: 110, y: 95 },
@@ -58,14 +58,15 @@ const world = {
     { p: 'antlers', wall: 's', at: 260, y: 170 },
     { p: 'frame', wall: 'n', at: 700, y: 170, w: 50, h: 36, color: '#d9663b' },
     { p: 'bowl', x: 700, z: 290, y: 90 },
-    { p: 'kettle', x: 640, z: 30, y: 90 },
-    { p: 'pots', x: 760, z: 30, y: 90 },
+    { p: 'kettle', x: 650, z: 265, y: 90 },
+    { p: 'pots', x: 745, z: 312, y: 90 },
     { p: 'chair', x: 645, z: 395, rot: 0 },
     { p: 'chair', x: 725, z: 395, rot: 0 },
     { p: 'chair', x: 645, z: 545, rot: 180 },
     { p: 'chair', x: 725, z: 545, rot: 180 },
     { p: 'beams', every: 150 },
     { p: 'mug', x: 300, z: 300, y: 42 },
+    { p: 'pole', x: 845, z: 505, h: 100 },
   ],
 };
 
@@ -104,12 +105,13 @@ const tableTop = {
     { x: 100, y: 2, z: 300 },
     { x: 150, y: 16, z: 288 },
     { x: 206, y: 43, z: 300, sharp: true },
-    { x: 268, y: 43, z: 310 },
-    { x: 322, y: 43, z: 318, sharp: true, gap: true },
-    { x: 352, y: 37, z: 332, sharp: true },
-    { x: 392, y: 22, z: 362 },
-    { x: 418, y: 6, z: 410, bank: 6 },
-    { x: 395, y: 1, z: 446 },
+    { x: 258, y: 43, z: 308, sharp: true },
+    { x: 296, y: 52, z: 314, sharp: true, gap: true },
+    { x: 318, y: 48, z: 318, sharp: true },
+    { x: 350, y: 38, z: 330 },
+    { x: 386, y: 22, z: 356 },
+    { x: 412, y: 7, z: 400, bank: 6 },
+    { x: 395, y: 1.4, z: 446 },
   ],
 };
 
@@ -138,4 +140,47 @@ const kitchenLoop = {
   ],
 };
 
-export default { ...world, tracks: [rugRally, tableTop, kitchenLoop] };
+const grandTour = {
+  name: 'Grand Cabin Tour',
+  blurb: 'The whole cabin: under the tables, a spiral up to the kitchen counter, a leap off the end and a long run downhill.',
+  laps: 2,
+  width: 22,
+  points: [
+    // living room: out from under the coffee table (start), round the armchair
+    { x: 360, y: 0.6, z: 320 },
+    { x: 404, y: 0.6, z: 340, bank: 10 },
+    { x: 417, y: 0.6, z: 398 },
+    { x: 440, y: 0.6, z: 446, bank: -8 },
+    { x: 520, y: 0.6, z: 468 },
+    // kitchen: under the dining table
+    { x: 610, y: 0.6, z: 470 },
+    { x: 700, y: 0.6, z: 470 },
+    { x: 790, y: 1.2, z: 466 },
+    // spiral up to counter height
+    ...arc(845, 505, 40, -90, 540, { y0: 1.4, y1: 91.4, bank: 8 }).map((p, i) => (i === 0 ? { ...p, bank: 0 } : p)),
+    // past the island and round onto the counter top
+    { x: 808, y: 91.4, z: 420 },
+    { x: 814, y: 91.4, z: 300 },
+    ...arc(735, 111, 80, 0, -90, { y0: 91.4 }),
+    { x: 660, y: 91.4, z: 31 },
+    // off the end of the counter
+    { x: 612, y: 91.4, z: 31, sharp: true },
+    { x: 576, y: 97, z: 31, sharp: true, gap: true },
+    { x: 546, y: 86, z: 31, sharp: true },
+    { x: 505, y: 75, z: 36 },
+    // the long run down across the living room
+    { x: 440, y: 63, z: 72 },
+    { x: 372, y: 51, z: 116, bank: -4 },
+    { x: 292, y: 39, z: 150 },
+    { x: 200, y: 26, z: 175 },
+    { x: 118, y: 13, z: 212, bank: -6 },
+    { x: 80, y: 5, z: 262, bank: -10 },
+    { x: 82, y: 1.5, z: 304, bank: -10 },
+    { x: 124, y: 0.8, z: 321 },
+    // under the coffee table
+    { x: 200, y: 0.6, z: 320 },
+    { x: 280, y: 0.6, z: 320 },
+  ],
+};
+
+export default { ...world, tracks: [rugRally, tableTop, kitchenLoop, grandTour] };

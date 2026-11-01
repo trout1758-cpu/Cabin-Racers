@@ -150,6 +150,27 @@ export function buildTrack(track) {
   g.add(arch);
 
   // ---- support posts under raised track ---------------------------------------
+  // A post stands on the ground, or on a lower part of the track if one runs
+  // underneath (spirals, bridges).
+  const cell = 20, grid = new Map();
+  S.forEach((smp, i) => {
+    const key = `${Math.floor(smp.p.x / cell)},${Math.floor(smp.p.z / cell)}`;
+    if (!grid.has(key)) grid.set(key, []);
+    grid.get(key).push(i);
+  });
+  const lowerTrack = (x, z, y, s) => {
+    let best = -Infinity;
+    const cx = Math.floor(x / cell), cz = Math.floor(z / cell);
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      for (const i of grid.get(`${cx + dx},${cz + dz}`) || []) {
+        const q = S[i];
+        const along = Math.min(Math.abs(q.s - s), L - Math.abs(q.s - s));
+        if (along < 60 || q.gap || q.p.y > y - 4) continue;
+        if (Math.hypot(q.p.x - x, q.p.z - z) < q.w / 2 + 2) best = Math.max(best, q.p.y + CFG.RAIL_HEIGHT);
+      }
+    }
+    return best;
+  };
   const posts = [];
   const W = track.world;
   for (let s = 0; s < L; s += 30) {
@@ -157,9 +178,12 @@ export function buildTrack(track) {
     if (f.gap || f.loop || f.n.y < 0.85) continue;
     for (const side of [-0.32, 0.32]) {
       const p = at(f, side * f.w, -THICK);
-      const ground = W.groundHeight(p.x, p.z, p.y - 1);
+      const wet = W.waterAt(p.x, p.z);
+      let ground = W.groundHeight(p.x, p.z, p.y - 1);
+      if (wet && ground < 0.5) ground = -10;
+      ground = Math.max(ground, lowerTrack(p.x, p.z, p.y, s));
       const h = p.y - ground;
-      if (h > 3) posts.push({ x: p.x, z: p.z, y0: W.waterAt(p.x, p.z) && ground < 0.5 ? -10 : ground, h: h + (W.waterAt(p.x, p.z) && ground < 0.5 ? 10 : 0) });
+      if (h > 3) posts.push({ x: p.x, z: p.z, y0: ground, h });
     }
   }
   if (posts.length) {

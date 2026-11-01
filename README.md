@@ -7,15 +7,20 @@ The game runs on the computer (TV); each player uses an Android phone running **
 
 ## Worlds and tracks
 
-| World | Track | What's on it |
-| --- | --- | --- |
-| Cozy Cabin | Rug Rally | Quick loop round the rug, ramp jump in front of the sofa |
-| Cozy Cabin | Table Top Run | Up onto the coffee table and off the far edge |
-| Cozy Cabin | Kitchen Loop | Loop-the-loop by the counter, jump past the fridge, under the dining table |
-| Backyard | Garden Grand Prix | Loop-the-loop, a jump over the puddle, under the picnic table |
-| Lakeside | Dock Dash | Along the dock, a leap over open water, a loop above the lake |
+| World | Track | Length | What's on it |
+| --- | --- | --- | --- |
+| Cozy Cabin | Rug Rally | short | Quick loop round the rug, ramp jump in front of the sofa |
+| Cozy Cabin | Table Top Run | short | Up onto the coffee table and off the far edge |
+| Cozy Cabin | Kitchen Loop | medium | Loop-the-loop by the counter, jump past the fridge, under the dining table |
+| Cozy Cabin | **Grand Cabin Tour** | long | The whole cabin: under both tables, a spiral up to the kitchen counter, a leap off the end, a long run downhill |
+| Backyard | Garden Grand Prix | long | Loop-the-loop, a jump over the puddle, under the picnic table |
+| Backyard | **Backyard Adventure** | long | Along the porch and off the end, up round the oak and over your own track, the puddle, across the sandbox |
+| Lakeside | Dock Dash | medium | Along the dock, a leap over open water, a loop above the lake |
+| Lakeside | **Island Hop** | long | Over a bridge and round the lighthouse island, up over your own track into a loop, a water jump back |
 
-Loops need speed: too slow and you drop off. Land in water and it's a splash (you're put back on the track).
+Pick **Chill**, **Normal** or **Zoom** speed in the lobby.
+Loops need speed: too slow and you drop off. Land in water and it's a splash.
+If you fall off just before a jump or a loop, you're put back on the far side of it, so you never get stuck retrying it.
 
 ## Play
 
@@ -89,11 +94,12 @@ Optional per point:
 `trackKit.js` has helpers you can spread into the list:
 - `...loop(x, y, z, heading)` adds a loop-the-loop.
 - `...jump(x, y, z, heading, { rise, gap })` adds a ramp jump.
+- `...arc(cx, cz, radius, fromAngle, toAngle, { y0, y1 })` adds a curve. It becomes a spiral if it turns more than 360° while climbing.
 
 Headings are in degrees: 0 is east and 90 is south.
 
 A world lists its solid scenery with `box(...)` and `cyl(...)`; the cars collide with these and can drive on top of them.
 It lists `water` areas, and `props` that are only for looks.
 
-The tests drive every track with a track-following autopilot to check that it can be completed and every jump cleared.
+The tests drive every track with a track-following autopilot, at all three speeds, to check that it can be completed and every jump cleared.
 They also check that no track runs through scenery, dips into the ground or crosses itself.

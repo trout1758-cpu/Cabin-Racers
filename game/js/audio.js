@@ -54,10 +54,10 @@ export class Audio {
     const e = this.engines[i];
     if (!e) return;
     const t = this.ctx.currentTime;
-    const f = 48 + Math.abs(speed) * 0.85;
+    const f = 48 + Math.abs(speed) * 2.1;
     e.saw.frequency.setTargetAtTime(f, t, 0.05);
     e.sub.frequency.setTargetAtTime(f / 2, t, 0.05);
-    e.filter.frequency.setTargetAtTime(300 + throttle * 1200 + Math.abs(speed) * 2, t, 0.08);
+    e.filter.frequency.setTargetAtTime(300 + throttle * 1200 + Math.abs(speed) * 5, t, 0.08);
     e.gain.gain.setTargetAtTime(0.025 + throttle * 0.03, t, 0.08);
   }
 

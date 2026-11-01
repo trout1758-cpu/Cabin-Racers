@@ -137,7 +137,21 @@ export function updateCarMesh(mesh, car, dt) {
   _x.set(car.fwd.x, car.fwd.y, car.fwd.z);
   _z.crossVectors(_x, mesh.up).normalize();
   _x.crossVectors(mesh.up, _z).normalize();
-  _m.makeBasis(_x, mesh.up, _z);
+  // in the air the nose follows the flight path (up off the ramp, down to land)
+  let pitch = 0;
+  if (!car.grounded && car.respawnTimer <= 0) {
+    const vu = car.vel.x * mesh.up.x + car.vel.y * mesh.up.y + car.vel.z * mesh.up.z;
+    const vf = car.vel.x * _x.x + car.vel.y * _x.y + car.vel.z * _x.z;
+    pitch = Math.max(-0.7, Math.min(0.6, Math.atan2(vu, Math.max(10, Math.abs(vf))) * 0.8));
+  }
+  mesh.pitch += (pitch - mesh.pitch) * (1 - Math.exp(-(car.grounded ? 14 : 6) * dt));
+  if (Math.abs(mesh.pitch) > 1e-3) {
+    _x.applyAxisAngle(_z, mesh.pitch);
+    _y.copy(mesh.up).applyAxisAngle(_z, mesh.pitch);
+  } else {
+    _y.copy(mesh.up);
+  }
+  _m.makeBasis(_x, _y, _z);
   mesh.root.quaternion.setFromRotationMatrix(_m);
   mesh.root.position.set(car.pos.x, car.pos.y, car.pos.z);
   mesh.root.visible = !(car.respawnTimer > 0 && Math.floor(car.respawnTimer * 12) % 2 === 0);

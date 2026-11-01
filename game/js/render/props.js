@@ -241,6 +241,10 @@ export const PROPS = {
     );
   },
 
+  pole(q) {
+    return group(C(5, 6, q.h, '#2f86c9', q.x, q.h / 2, q.z, { seg: 14 }), C(14, 16, 3, '#2f86c9', q.x, 1.5, q.z, { seg: 18 }), S(7, '#ffd34d', q.x, q.h + 3, q.z));
+  },
+
   mug(q) {
     return group(C(3.5, 3.2, 8, '#ffffff', q.x, q.y + 4, q.z, { seg: 14 }), T(2.4, 0.7, '#ffffff', q.x + 4, q.y + 4.5, q.z, { arc: Math.PI * 1.2 }));
   },

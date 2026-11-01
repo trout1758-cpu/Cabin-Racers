@@ -44,3 +44,22 @@ export function jump(x, y, z, deg, { ramp = 45, rise = 11, gap = 36, drop = 3, l
     P(ramp + gap + land, end),
   ];
 }
+
+// Points along a circular arc around (cx, cz) from angle a0 to a1 (degrees,
+// measured like headings: 0 = east of the centre, 90 = south). Increasing
+// angles go clockwise seen from above (a right-hand turn). Height goes from
+// y0 to y1, so a1 - a0 beyond 360 makes a spiral. `bank` is applied in the
+// direction of the turn.
+export function arc(cx, cz, r, a0, a1, { y0 = 0.6, y1 = y0, step = 20, bank = 0, w } = {}) {
+  const n = Math.max(2, Math.ceil(Math.abs(a1 - a0) / step));
+  const turn = Math.sign(a1 - a0);
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const a = (a0 + ((a1 - a0) * i) / n) * RAD;
+    const p = { x: cx + r * Math.cos(a), y: y0 + ((y1 - y0) * i) / n, z: cz + r * Math.sin(a) };
+    if (bank) p.bank = bank * turn;
+    if (w) p.w = w;
+    pts.push(p);
+  }
+  return pts;
+}

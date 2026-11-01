@@ -111,6 +111,34 @@ const SOLID = {
     g.add(B(1, 8, 5, '#e8473b', c.x + 0.5, c.y1 + 10, c.z + 3, { outline: false }), C(0.4, 0.4, 16, '#555', c.x, c.y1 + 6, c.z, { seg: 4 }));
     return g;
   },
+  island: (c) => {
+    const g = new THREE.Group();
+    g.add(C(c.r, c.r + 6, c.y1 + 0.5, toon(null, { map: tex(TX.sand('#f0d9a0'), c.r / 40, 1) }), c.x, (c.y1 + 0.5) / 2 - 0.25, c.z, { seg: 48, outline: false }));
+    const grass = C(c.r - 34, c.r - 30, 0.6, toon(null, { map: tex(TX.grass(), c.r / 60, c.r / 60) }), c.x, c.y1 + 0.3, c.z, { seg: 48, outline: false });
+    g.add(grass);
+    for (let k = 0; k < 10; k++) {
+      const a = k * 0.83 + 0.4;
+      const m = S(1, '#9aa0a6', c.x + Math.cos(a) * (c.r + 2), 2, c.z + Math.sin(a) * (c.r + 2), 9 + (k % 3) * 3, 6, 8);
+      m.geometry = new THREE.DodecahedronGeometry(1, 0);
+      g.add(m);
+    }
+    return g;
+  },
+  lighthouse: (c) => {
+    const g = new THREE.Group();
+    const h = c.y1 - c.y0, bands = 5;
+    for (let i = 0; i < bands; i++) {
+      const r0 = c.r * (1 - (i / bands) * 0.3), r1 = c.r * (1 - ((i + 1) / bands) * 0.3);
+      g.add(C(r1, r0, h / bands, i % 2 ? '#ffffff' : '#e8473b', c.x, c.y0 + (h / bands) * (i + 0.5), c.z, { seg: 20 }));
+    }
+    g.add(C(c.r * 0.9, c.r * 0.9, 4, '#2b1c18', c.x, c.y1 + 2, c.z, { seg: 20 }));
+    const lamp = C(c.r * 0.55, c.r * 0.55, 16, null, c.x, c.y1 + 12, c.z, { seg: 16, outline: false });
+    lamp.material = flat('#fff3a0');
+    g.add(lamp);
+    g.add(K(c.r * 0.8, 16, '#e8473b', c.x, c.y1 + 28, c.z, { seg: 16 }));
+    g.add(B(18, 30, 2, '#6d3b1f', c.x, c.y0 + 15, c.z + c.r * 0.95, { r: 1 }));
+    return g;
+  },
   campfire: (c) => {
     const g = new THREE.Group();
     for (let k = 0; k < 9; k++) {

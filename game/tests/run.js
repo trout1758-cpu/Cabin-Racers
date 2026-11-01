@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Headless tests for the race simulation. Run: node game/tests/run.js
-import { Car, autopilot, stepCar } from '../js/car.js';
+import { Car, autopilot, respawnSpot, stepCar } from '../js/car.js';
 import { CFG } from '../js/config.js';
 import { Race } from '../js/race.js';
 import { Track } from '../js/track.js';
@@ -36,9 +36,9 @@ function drive(car, track, seconds, input) {
 }
 
 // Runs a race where every car uses the autopilot; returns events.
-function autoRace(def, players = 1, maxSeconds = 120) {
+function autoRace(def, players = 1, maxSeconds = 400, speed = 1) {
   const track = new Track(def);
-  const race = new Race(track, players, { laps: def.laps });
+  const race = new Race(track, players, { laps: def.laps, speed });
   const evs = [];
   for (let t = 0; t < maxSeconds && race.state !== 'done'; t += DT) {
     evs.push(...race.step(DT, race.cars.map((c) => autopilot(c, track))));
@@ -135,7 +135,7 @@ test('accelerates toward top speed, brakes, then reverses', () => {
   const car = new Car(0, track0, 20);
   const steerOnly = (throttle, brake) => (c) => ({ throttle, brake, steer: autopilot(c, track0).steer, drift: false });
   drive(car, track0, 1.0, steerOnly(1, 0));
-  assert(car.speed > 170, 'speed after 1s ' + car.speed);
+  assert(car.speed > 65, 'speed after 1s ' + car.speed);
   drive(car, track0, 1.4, steerOnly(0, 1));
   assert(car.speed < 0, 'should be reversing: ' + car.speed);
   assert(car.speed >= -CFG.REVERSE_MAX - 1, 'reverse capped');
@@ -201,7 +201,7 @@ test('loop: the track turns upside down and comes out level, offset sideways', (
 test('loop: at speed the car goes all the way round', () => {
   const car = new Car(0, loopTrack, 30);
   let minUp = 1, fell = false;
-  for (let t = 0; t < 5; t += DT) {
+  for (let t = 0; t < 9; t += DT) {
     const evs = stepCar(car, autopilot(car, loopTrack), loopTrack, DT);
     if (evs.some((e) => e.type === 'fell')) fell = true;
     minUp = Math.min(minUp, car.up.y);
@@ -214,7 +214,7 @@ test('loop: at speed the car goes all the way round', () => {
 
 test('loop: too slow and the car drops off', () => {
   const car = new Car(0, loopTrack, 290);
-  car.vel = { x: 185, y: 0, z: 0 };
+  car.vel = { x: 72, y: 0, z: 0 };
   let dropped = false;
   for (let t = 0; t < 2; t += DT) {
     stepCar(car, { throttle: 0, brake: 0, steer: 0, drift: false }, loopTrack, DT);
@@ -226,9 +226,15 @@ test('loop: too slow and the car drops off', () => {
 
 test('loop: too slow to reach the wall and the car rolls back', () => {
   const car = new Car(0, loopTrack, 290);
-  car.vel = { x: 110, y: 0, z: 0 };
-  for (let t = 0; t < 1.5; t += DT) stepCar(car, { throttle: 0, brake: 0, steer: 0, drift: false }, loopTrack, DT);
-  assert(car.pos.x < 400 && car.grounded, 'rolled back to the bottom: ' + car.pos.x.toFixed(0));
+  car.vel = { x: 40, y: 0, z: 0 };
+  let maxY = 0, detached = false;
+  for (let t = 0; t < 5; t += DT) {
+    stepCar(car, { throttle: 0, brake: 0, steer: 0, drift: false }, loopTrack, DT);
+    maxY = Math.max(maxY, car.pos.y);
+    if (!car.grounded) detached = true;
+  }
+  assert(!detached && maxY > 5 && maxY < 26, `climbed to ${maxY.toFixed(0)} cm`);
+  assert(car.grounded && car.pos.y < 3, 'rolled back to the bottom: y=' + car.pos.y.toFixed(1));
 });
 
 test('water: landing in it is a splash and a respawn', () => {
@@ -241,6 +247,20 @@ test('water: landing in it is a splash and a respawn', () => {
   const evs = drive(car, track, 1.4, idle);
   assert(evs.some((e) => e.type === 'splash'), 'splash');
   assert(evs.some((e) => e.type === 'respawned') && car.surface === 'track', 'back on the track');
+});
+
+test('respawning just before a jump puts you past it', () => {
+  const def = TRACKS.find((t) => t.name === 'Garden Grand Prix');
+  const track = new Track(def);
+  let gapAt = -1;
+  for (const s of track.samples) if (s.gap) { gapAt = s.s; break; }
+  const spot = respawnSpot(track, gapAt - 40);
+  const f = track.frameAt(spot);
+  assert(spot > gapAt && !f.gap && !f.loop, `respawned at ${spot.toFixed(0)}, gap at ${gapAt.toFixed(0)}`);
+  const rug = new Track(TRACKS.find((t) => t.name === 'Rug Rally'));
+  let rugGap = -1;
+  for (const s of rug.samples) if (s.gap) { rugGap = s.s; break; }
+  assert(respawnSpot(rug, rugGap - 300) === rugGap - 300, 'a spot well before the jump is left alone');
 });
 
 test('every world has at least one track and unique track ids', () => {
@@ -262,6 +282,18 @@ for (const def of TRACKS) {
     assert(jumps.length >= def.laps, `expected a jump per lap, got ${jumps.length}`);
     console.log(`      lap ${(car.bestLap).toFixed(2)} s, track ${track.length.toFixed(0)} cm, ${jumps.length} jumps`);
   });
+}
+
+for (const sp of CFG.SPEEDS.filter((x) => x.scale !== 1)) {
+  for (const def of TRACKS) {
+    test(`${def.name} at ${sp.name} speed: autopilot finishes without falling`, () => {
+      const { race, evs } = autoRace({ ...def, laps: 1 }, 1, 400, sp.scale);
+      const car = race.cars[0];
+      assert(race.state === 'done' && car.finished && !car.dnf, 'did not finish');
+      const bad = evs.filter((e) => e.type === 'fell' || e.type === 'splash');
+      assert(bad.length === 0, bad.map((e) => e.type).join() + ` (s≈${car.loc.s.toFixed(0)})`);
+    });
+  }
 }
 
 test('four cars: grid, no overlaps, positions are a permutation', () => {
