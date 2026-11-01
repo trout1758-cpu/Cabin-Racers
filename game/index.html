@@ -15,20 +15,19 @@
   <section id="screen-title" class="screen">
     <div class="title-card">
       <h1 class="logo"><span>Cabin</span><span>Racers</span></h1>
-      <p class="tagline">Toy-car racing all over the house · up to 4 players</p>
-      <button class="btn big" id="btn-play">Play</button>
-      <p class="hint">Controllers: the <b>Racer Pad</b> Android app over Bluetooth, keyboards, or gamepads.</p>
+      <p class="tagline">Tiny cars · big tracks · up to 4 players</p>
+      <button class="btn big" id="btn-play">Play!</button>
+      <p class="hint">Steer with the <b>Racer Pad</b> phone app, a keyboard or a gamepad.</p>
     </div>
   </section>
 
   <section id="screen-lobby" class="screen hidden">
     <div class="lobby">
       <div class="race-setup panel">
-        <h2>Race setup</h2>
-        <label class="row">Track
-          <select id="set-track"></select>
-        </label>
-        <canvas id="track-preview" width="360" height="240"></canvas>
+        <h2>Pick a track</h2>
+        <div class="track-list" id="track-list"></div>
+        <canvas id="track-preview" width="360" height="200"></canvas>
+        <p class="blurb" id="track-blurb"></p>
         <label class="row">Laps
           <span class="seg" id="set-laps"></span>
         </label>

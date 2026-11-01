@@ -30,6 +30,7 @@ export const CFG = {
   RAIL_HEIGHT: 1.6,
   SNAP: 0.9,                // stay glued to the surface within this distance
   LAUNCH_SPEED: 22,         // leave the ground if moving away from it faster than this
+  LOOP_MIN_SPEED: 70,       // slower than this on a wall or upside down and you fall off
   RESPAWN_OFFTRACK: 2.4,    // seconds off the track before being put back
   RESPAWN_DELAY: 0.8,
 

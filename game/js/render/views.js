@@ -2,7 +2,6 @@
 // With 3 players the spare quarter shows a slowly orbiting overview.
 import * as THREE from '../vendor/three.module.min.js';
 import { CFG } from '../config.js';
-import { HOUSE } from '../house.js';
 
 const BACK = 19;      // cm behind the car
 const HEIGHT = 7.5;   // cm above it
@@ -15,19 +14,13 @@ export function layoutFor(n) {
   return [[0, 0, 0.5, 0.5], [0.5, 0, 0.5, 0.5], [0, 0.5, 0.5, 0.5], [0.5, 0.5, 0.5, 0.5]];
 }
 
-function insideFurniture(p) {
-  for (const b of HOUSE.boxes) {
-    if (p.x > b.min[0] - 1 && p.x < b.max[0] + 1 && p.y > b.min[1] - 1 && p.y < b.max[1] + 1 && p.z > b.min[2] - 1 && p.z < b.max[2] + 1) return true;
-  }
-  return false;
-}
-
 export class Views {
   constructor(renderer, scene) {
     this.renderer = renderer;
     this.scene = scene;
     this.cams = [];
-    this.overview = new THREE.PerspectiveCamera(50, 1, 1, 4000);
+    this.overview = new THREE.PerspectiveCamera(50, 1, 1, 20000);
+    this.world = null;
     this.time = 0;
   }
 
@@ -36,40 +29,51 @@ export class Views {
     this.rects = layoutFor(n);
     this.cams = [];
     for (let i = 0; i < Math.max(n, 1); i++) {
-      const cam = new THREE.PerspectiveCamera(68, 1, 0.4, 4000);
+      const cam = new THREE.PerspectiveCamera(68, 1, 0.4, 20000);
       cam.userData.ready = false;
+      cam.userData.up = new THREE.Vector3(0, 1, 0);
       this.cams.push(cam);
     }
   }
 
-  // Chase camera for player i following `car`.
+  // Chase camera for player i following `car`. Works in the car's own frame
+  // (smoothed) so it follows the car round loops and up ramps.
   follow(i, car, dt) {
     const cam = this.cams[i];
     if (!cam) return;
-    const fx = car.fwd.x, fz = car.fwd.z;
-    const fl = Math.hypot(fx, fz) || 1;
-    const want = new THREE.Vector3(car.pos.x - (fx / fl) * BACK, car.pos.y + HEIGHT, car.pos.z - (fz / fl) * BACK);
-    // pull in toward the car if furniture is in the way
-    const carV = new THREE.Vector3(car.pos.x, car.pos.y + 3, car.pos.z);
-    for (let k = 0; k < 8 && insideFurniture(want); k++) want.lerp(carV, 0.3);
-    want.y = Math.max(want.y, 2);
+    const up = cam.userData.up;
+    const target = new THREE.Vector3(car.up.x, car.up.y, car.up.z);
+    // level out in the air; otherwise follow the surface
+    if (!car.grounded) target.lerp(new THREE.Vector3(0, 1, 0), 0.6);
+    up.lerp(target, 1 - Math.exp(-5 * dt)).normalize();
+    const fwd = new THREE.Vector3(car.fwd.x, car.fwd.y, car.fwd.z);
+    fwd.addScaledVector(up, -fwd.dot(up));
+    if (fwd.lengthSq() < 1e-6) fwd.set(1, 0, 0);
+    fwd.normalize();
+    const pos = new THREE.Vector3(car.pos.x, car.pos.y, car.pos.z);
+    const want = pos.clone().addScaledVector(fwd, -BACK).addScaledVector(up, HEIGHT);
+    // pull in toward the car if scenery is in the way
+    const near = pos.clone().addScaledVector(up, 3);
+    for (let k = 0; k < 8 && this.world && this.world.inside(want, 1); k++) want.lerp(near, 0.3);
+    if (up.y > 0.7) want.y = Math.max(want.y, 2);
     if (!cam.userData.ready) {
       cam.position.copy(want);
       cam.userData.ready = true;
     } else {
-      cam.position.lerp(want, 1 - Math.exp(-7 * dt));
+      cam.position.lerp(want, 1 - Math.exp(-13 * dt));
     }
-    const look = new THREE.Vector3(car.pos.x + (fx / fl) * AHEAD, car.pos.y + 2, car.pos.z + (fz / fl) * AHEAD);
+    cam.up.copy(up);
+    const look = pos.clone().addScaledVector(fwd, AHEAD).addScaledVector(up, 2);
     cam.lookAt(look);
     const fov = 62 + Math.min(1, Math.max(0, car.speed / CFG.MAX_SPEED)) * 14;
     cam.fov += (fov - cam.fov) * (1 - Math.exp(-3 * dt));
   }
 
   // Slowly circling view over the track (title screen, spare split-screen slot).
-  orbit(center, radius, dt) {
+  orbit(center, radius, dt, height = 0.75) {
     this.time += dt;
     const a = this.time * 0.12;
-    this.overview.position.set(center.x + Math.cos(a) * radius, radius * 0.75, center.z + Math.sin(a) * radius);
+    this.overview.position.set(center.x + Math.cos(a) * radius, radius * height, center.z + Math.sin(a) * radius);
     this.overview.lookAt(center.x, 0, center.z);
   }
 

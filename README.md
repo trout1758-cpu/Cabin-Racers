@@ -1,11 +1,21 @@
 # Cabin Racers
 
-Up-to-4-player split-screen racing with Hot Wheels–sized cars on toy tracks that run around the house.
+Up-to-4-player split-screen cartoon racing with Hot Wheels–sized cars on orange toy tracks: through a cozy log cabin, round the backyard and out over the lake.
 The game runs on the computer (TV); each player uses an Android phone running **Racer Pad** as a tilt-steering Bluetooth controller.
 
-> **Early build.** The racing core, split-screen, phone controller and two starter tracks work.
-> The house is a hand-built placeholder living room and kitchen; it will be replaced by a model of the real house.
-> No power-ups or boosts yet; pure racing.
+> **Early build.** Pure racing for now: no power-ups or boosts yet.
+
+## Worlds and tracks
+
+| World | Track | What's on it |
+| --- | --- | --- |
+| Cozy Cabin | Rug Rally | Quick loop round the rug, ramp jump in front of the sofa |
+| Cozy Cabin | Table Top Run | Up onto the coffee table and off the far edge |
+| Cozy Cabin | Kitchen Loop | Loop-the-loop by the counter, jump past the fridge, under the dining table |
+| Backyard | Garden Grand Prix | Loop-the-loop, a jump over the puddle, under the picnic table |
+| Lakeside | Dock Dash | Along the dock, a leap over open water, a loop above the lake |
+
+Loops need speed: too slow and you drop off. Land in water and it's a splash (you're put back on the track).
 
 ## Play
 
@@ -48,30 +58,42 @@ The game runs on the computer (TV); each player uses an Android phone running **
 ```
 game/                    The racing game (plain JS modules + three.js, no build step)
   js/config.js           Tuning (units: cm and seconds; a car is 7.5 cm long)
-  js/track.js            Track model: smooth closed curve, width, banking, rails, jump gaps
-  js/tracks/             Track layouts
-  js/house.js            The house's furniture as collision boxes
-  js/car.js              Arcade car physics (grip, drift, ramps and jumps, rails, respawn)
+  js/track.js            Track model: smooth closed curve, width, banking, rails, jumps, loops
+  js/trackKit.js         Helpers for writing tracks: loop(), jump(), headings
+  js/world.js            A world's solid scenery (boxes, cylinders), water and edges
+  js/worlds/             The worlds, each with its scenery, props and tracks
+  js/car.js              Arcade car physics (grip, drift, ramps, jumps, loops, rails, respawn)
   js/race.js             Grid, countdown, laps, positions, finishing
-  js/render/             3D: house, toy-track mesh, cars, split-screen cameras
+  js/render/             Cartoon 3D: cel shading + ink outlines (toon.js), scenery (worldMesh.js,
+                         props.js), toy-track mesh, cars, particles, split-screen cameras
   js/controllers.js      Racer Pad phones over Web Bluetooth, keyboards, gamepads
   js/vendor/             three.js r170 (MIT)
+  fonts/                 Lilita One (SIL Open Font License)
   tests/run.js           Headless tests: `node game/tests/run.js`
 controller-android/      Racer Pad (Kotlin)
 docs/PROTOCOL.md         Bluetooth protocol
 ```
 
-Add `?debug` to the game URL for an FPS counter, or `?autotest=4` to jump straight into a 4-player keyboard race.
+Add `?debug` to the game URL for an FPS counter, `?track=backyard/0` to pick a track, or `?autotest=4` to jump straight into a 4-player keyboard race.
 
 ## Making tracks
 
-A track is a list of control points through the house, in centimetres. `x` runs east, `z` runs south, and `y` is the height of the track surface.
+Tracks live in their world's file in `game/js/worlds/`. A track is a list of control points, in centimetres: `x` runs east, `z` runs south, and `y` is the height of the track surface.
 Optional per point:
 - `w` sets the width.
-- `bank` tilts the track, in degrees.
+- `bank` tilts the track, in degrees. Positive raises the left edge, for right-hand turns.
 - `gap: true` means the next segment is a jump.
 - `rails: false` removes the side rails.
 - `sharp: true` makes a crisp ramp lip.
 
-See `game/js/tracks/`.
+`trackKit.js` has helpers you can spread into the list:
+- `...loop(x, y, z, heading)` adds a loop-the-loop.
+- `...jump(x, y, z, heading, { rise, gap })` adds a ramp jump.
+
+Headings are in degrees: 0 is east and 90 is south.
+
+A world lists its solid scenery with `box(...)` and `cyl(...)`; the cars collide with these and can drive on top of them.
+It lists `water` areas, and `props` that are only for looks.
+
 The tests drive every track with a track-following autopilot to check that it can be completed and every jump cleared.
+They also check that no track runs through scenery, dips into the ground or crosses itself.

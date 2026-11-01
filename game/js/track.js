@@ -9,7 +9,12 @@
 //   - gap: the segment from this point to the next has no surface (a jump)
 //   - rails: false removes the side rails on the segment after this point
 //   - sharp: true makes a crease at this point (ramp lips, landings)
-import { UP, add, cross, dist, dot, lerp, norm, rotate, scale, sub } from './vec.js';
+//   - loop: true lets the segment after this point turn upside down
+//     (loop-the-loops); see trackKit.js for helpers that build loops and jumps
+import { UP, add, cross, dist, dot, lerp, norm, reject, rotate, scale, sub } from './vec.js';
+import { World } from './world.js';
+
+const FLAT_WORLD = { id: 'flat', name: 'Flat', size: { x: 1e5, z: 1e5 } };
 
 const STEP = 1.5;
 
@@ -30,6 +35,8 @@ export class Track {
     this.name = def.name;
     this.laps = def.laps || 3;
     this.width = def.width || 22;
+    this.color = def.color || '#ff7a00';
+    this.world = new World(def.world || FLAT_WORLD);
     this.build();
   }
 
@@ -54,6 +61,7 @@ export class Track {
           bank: b1 + (b2 - b1) * smooth(t),
           gap: !!p1.gap,
           rail: p1.rails !== false && !p1.gap,
+          loop: p1.loop || null,
           ctrl: k === 0 ? i : -1,
         });
       }
@@ -65,21 +73,39 @@ export class Track {
       s += dist(S[k].p, S[(k + 1) % S.length].p);
     }
     this.length = s;
-    // frames
+    // frames: `right` follows the horizontal (so the track stays level unless
+    // banked), except in loops where it is carried along by parallel
+    // transport so the track can go upside down without flipping.
     let prevR = null;
     for (let k = 0; k < S.length; k++) {
       const a = S[(k - 1 + S.length) % S.length].p, b = S[(k + 1) % S.length].p;
       const t = norm(sub(b, a));
-      let r = cross(t, UP);
-      r = Math.hypot(r.x, r.y, r.z) < 1e-3 && prevR ? prevR : norm(r);
+      const hint = cross(t, UP);
+      const hl = Math.hypot(hint.x, hint.y, hint.z);
+      let r;
+      if (S[k].loop && typeof S[k].loop === 'object') {
+        // loop-the-loop: "up" points at the loop's axis
+        const L = S[k].loop, p = S[k].p;
+        const toAxis = reject({ x: L.cx - p.x, y: L.cy - p.y, z: L.cz - p.z }, { x: L.ax, y: 0, z: L.az });
+        r = norm(cross(t, norm(toAxis)));
+      } else if (!prevR) r = norm(hint);
+      else {
+        const carried = norm(reject(prevR, t));
+        if (S[k].loop || hl < 0.25) r = carried;
+        else {
+          const h = scale(hint, 1 / hl);
+          r = dot(h, carried) > 0 ? norm(lerp(carried, h, 0.15)) : carried;
+        }
+      }
+      prevR = r;
+      let rr = r;
       let nrm = cross(r, t);
       const bank = (S[k].bank * Math.PI) / 180;
       if (bank) {
-        r = rotate(r, t, bank);
+        rr = rotate(r, t, bank);
         nrm = rotate(nrm, t, bank);
       }
-      prevR = r;
-      Object.assign(S[k], { t, r, n: norm(nrm) });
+      Object.assign(S[k], { t, r: norm(rr), n: norm(nrm) });
     }
     this.samples = S;
   }
@@ -97,7 +123,7 @@ export class Track {
     const a = S[lo], b = S[(lo + 1) % S.length];
     const segLen = (b.s || L) - a.s;
     const u = segLen > 0 ? (s - a.s) / segLen : 0;
-    return { i: lo, s, p: lerp(a.p, b.p, u), t: a.t, r: a.r, n: a.n, w: a.w, gap: a.gap, rail: a.rail };
+    return { i: lo, s, p: lerp(a.p, b.p, u), t: a.t, r: a.r, n: a.n, w: a.w, gap: a.gap, rail: a.rail, loop: a.loop };
   }
 
   // Where is point p relative to the track? Searches near `hint` (a sample
@@ -140,6 +166,7 @@ export class Track {
       w: A.w,
       gap: A.gap,
       rail: A.rail,
+      loop: A.loop,
       d: dot(rel, A.r),
       h: dot(rel, A.n),
     };

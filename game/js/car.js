@@ -1,9 +1,9 @@
 // Arcade car physics (kart-racer style, not a rigid-body simulation).
 // Cars stick to whatever they are driving on (the toy track or a piece of
 // furniture), launch off ramp lips, drift, scrape along the rails and get
-// put back on the track if they fall off or stay off it too long.
+// put back on the track if they fall off or stay off it too long, or if
+// they land in water. Loop-the-loops work as long as you keep your speed up.
 import { CFG } from './config.js';
-import { groundHeight, pushOut } from './house.js';
 import { UP, add, addScaled, clamp, copy, cross, dot, lerp, norm, reject, rotate, scale, sub, v3 } from './vec.js';
 
 const DOWN = { x: 0, y: -1, z: 0 };
@@ -37,13 +37,21 @@ export class Car {
 }
 
 // Advance one car by dt. input: { throttle 0..1, brake 0..1, steer -1..1 (right +), drift bool }.
-// Returns events: land, wall, fell, respawned, driftStart, driftEnd.
+// Returns events: land, wall, fell, splash, respawned, driftStart, driftEnd.
 export function stepCar(car, inp, track, dt) {
   const ev = [];
+  const world = track.world;
   if (car.respawnTimer > 0) {
     car.respawnTimer -= dt;
     if (car.respawnTimer <= 0) {
-      car.placeOnTrack(track, car.safeS - 25, 0);
+      // back a little from the last safe spot, but never into a gap or a loop
+      let s = car.safeS - 25;
+      for (let k = 0; k < 60; k++) {
+        const f = track.frameAt(s);
+        if (!f.gap && !f.loop && f.n.y > 0.8) break;
+        s -= 10;
+      }
+      car.placeOnTrack(track, s, 0);
       ev.push({ type: 'respawned' });
     }
     return ev;
@@ -59,15 +67,26 @@ export function stepCar(car, inp, track, dt) {
   if (!loc.gap && Math.abs(loc.d) <= loc.w / 2 + 0.3 && loc.h > -2.5 && loc.h < snap) {
     sup = { kind: 'track', n: loc.n, h: loc.h };
   } else {
-    const h = car.pos.y - groundHeight(car.pos.x, car.pos.z, car.pos.y);
-    if (h > -2.5 && h < snap) sup = { kind: 'house', n: UP, h };
+    const g = world.groundHeight(car.pos.x, car.pos.z, car.pos.y);
+    const h = car.pos.y - g;
+    if (h > -2.5 && h < snap) sup = { kind: g > 0.5 ? 'solid' : 'ground', n: UP, h };
   }
   let grounded = false;
   if (sup) {
     const vn = dot(car.vel, sup.n);
     // stay glued unless we're flying off a ramp lip; land when we reach the surface
     grounded = car.grounded ? !(vn > CFG.LAUNCH_SPEED && sup.h > 0.02) : sup.h <= 0.15 && vn <= 5;
+    // too slow on a wall or upside down in a loop: let go
+    if (grounded && sup.n.y < 0.25 && dot(car.vel, car.fwd) < CFG.LOOP_MIN_SPEED) grounded = false;
     if (grounded && !car.grounded) ev.push({ type: 'land', impact: Math.max(0, -vn), air: car.airTime });
+  }
+  if (grounded && sup.kind === 'ground' && world.waterAt(car.pos.x, car.pos.z)) {
+    // splash! sink and get put back on the track
+    car.respawnTimer = CFG.RESPAWN_DELAY;
+    car.grounded = false;
+    car.vel = v3();
+    ev.push({ type: 'splash', pos: copy(car.pos) });
+    return ev;
   }
 
   if (grounded) {
@@ -79,7 +98,7 @@ export function stepCar(car, inp, track, dt) {
     let side = norm(cross(f, n)); // points to the car's right
     const v0 = reject(car.vel, n);
     let vf = dot(v0, f), vs = dot(v0, side);
-    const offroad = sup.kind === 'house';
+    const offroad = sup.kind !== 'track';
     const maxS = offroad ? CFG.OFFROAD_MAX : CFG.MAX_SPEED;
 
     // Drift: hold drift while turning at speed; slides with less grip but turns tighter.
@@ -167,7 +186,7 @@ export function stepCar(car, inp, track, dt) {
   }
 
   // Furniture sides and the room walls.
-  const hit = pushOut(car.pos, CFG.CAR_RADIUS);
+  const hit = world.pushOut(car.pos, CFG.CAR_RADIUS);
   if (hit) {
     const into = car.vel.x * hit.x + car.vel.z * hit.z;
     if (into < 0) {
@@ -182,7 +201,7 @@ export function stepCar(car, inp, track, dt) {
   // Off the track too long (or fallen somewhere silly)? Put it back.
   if (grounded && car.surface === 'track') {
     car.offTrack = 0;
-    if (Math.abs(loc.d) < loc.w / 2 - 2 && !loc.gap) car.safeS = loc.s;
+    if (Math.abs(loc.d) < loc.w / 2 - 2 && !loc.gap && !loc.loop && loc.n.y > 0.8) car.safeS = loc.s;
   } else {
     car.offTrack += dt;
   }
@@ -198,8 +217,11 @@ export function stepCar(car, inp, track, dt) {
 // demo and the tests. (Not an opponent AI.)
 export function autopilot(car, track, lookahead = 34) {
   const s = car.loc ? car.loc.s : 0;
-  const target = track.frameAt(s + lookahead).p;
-  const to = norm(sub(target, car.pos));
+  // look less far ahead in loops, where the track bends sharply upward
+  const look = car.loc && car.loc.loop ? 14 : lookahead;
+  const target = track.frameAt(s + look).p;
+  // work in the plane the car is driving on
+  const to = norm(reject(sub(target, car.pos), car.up));
   const side = norm(cross(car.fwd, car.up));
   const err = dot(to, side);
   const ahead = dot(to, car.fwd);

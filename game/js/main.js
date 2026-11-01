@@ -4,15 +4,15 @@ import { Audio } from './audio.js';
 import { autopilot } from './car.js';
 import { CFG } from './config.js';
 import { GamepadController, KeyboardController, bluetoothProblem, connectPhone, gamepads, onKey } from './controllers.js';
-import { HOUSE } from './house.js';
 import { PROTO } from './protocol.js';
 import { Race } from './race.js';
-import { makeCarMesh, updateCarMesh } from './render/carMesh.js';
-import { addLights, buildHouse } from './render/house3d.js';
+import { makeCarMesh, squashCar, updateCarMesh } from './render/carMesh.js';
+import { Effects } from './render/effects.js';
 import { buildTrack } from './render/trackMesh.js';
 import { Views, layoutFor } from './render/views.js';
+import { buildWorld } from './render/worldMesh.js';
 import { Track } from './track.js';
-import { TRACKS } from './tracks/index.js';
+import { TRACKS, WORLDS } from './worlds/index.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -25,14 +25,13 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.shadowMap.autoUpdate = false;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMapping = THREE.NoToneMapping;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#cfd8dc');
-scene.add(buildHouse());
-addLights(scene);
 const views = new Views(renderer, scene);
+const effects = new Effects(scene);
 const audio = new Audio();
+let clock = 0;
 
 function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -44,8 +43,12 @@ window.addEventListener('resize', resize);
 // State
 // ---------------------------------------------------------------------------
 const settings = (() => {
-  try { return Object.assign({ track: 0, laps: 3 }, JSON.parse(localStorage.getItem('cabin-racers') || '{}')); } catch (e) { return { track: 0, laps: 3 }; }
+  let s = { track: TRACKS[0].id, laps: TRACKS[0].laps };
+  try { s = Object.assign(s, JSON.parse(localStorage.getItem('cabin-racers') || '{}')); } catch (e) { /* private mode */ }
+  if (!TRACKS.some((t) => t.id === s.track)) s.track = TRACKS[0].id;
+  return s;
 })();
+const trackIndex = () => Math.max(0, TRACKS.findIndex((t) => t.id === settings.track));
 const save = () => { try { localStorage.setItem('cabin-racers', JSON.stringify(settings)); } catch (e) { /* private mode */ } };
 
 const slots = CFG.PLAYERS.map((color, i) => ({ index: i, color, controller: null, ready: false }));
@@ -81,22 +84,36 @@ function show(id, on) {
 // ---------------------------------------------------------------------------
 // Tracks, cars
 // ---------------------------------------------------------------------------
-function loadTrack(index) {
-  if (game.trackMesh) scene.remove(game.trackMesh);
-  game.track = new Track(TRACKS[index]);
-  game.trackMesh = buildTrack(game.track);
-  scene.add(game.trackMesh);
-  const S = game.track.samples;
-  let cx = 0, cz = 0;
-  for (const s of S) { cx += s.p.x; cz += s.p.z; }
-  game.trackCenter = { x: cx / S.length, z: cz / S.length };
+function dispose(obj) {
+  obj.traverse((o) => { if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); });
 }
 
-function setCars(n, colorsFrom) {
-  for (const m of game.meshes) scene.remove(m.root);
+function loadTrack(index) {
+  const def = TRACKS[index];
+  if (game.track && game.track.def === def) return;
+  if (game.trackMesh) { scene.remove(game.trackMesh); dispose(game.trackMesh); }
+  if (game.world) { scene.remove(game.world.group); dispose(game.world.group); }
+  game.track = new Track(def);
+  views.world = game.track.world;
+  // the scenery is rebuilt for each track so grass and flowers keep off it
+  game.world = buildWorld(game.track, scene);
+  scene.add(game.world.group);
+  game.trackMesh = buildTrack(game.track);
+  scene.add(game.trackMesh);
+  effects.clear();
+  const S = game.track.samples;
+  let cx = 0, cz = 0, r = 0;
+  for (const s of S) { cx += s.p.x; cz += s.p.z; }
+  cx /= S.length; cz /= S.length;
+  for (const s of S) r = Math.max(r, Math.hypot(s.p.x - cx, s.p.z - cz));
+  game.trackCenter = { x: cx, z: cz, r };
+}
+
+function setCars(n, colorsFrom, numbers) {
+  for (const m of game.meshes) { scene.remove(m.root); dispose(m.root); }
   game.meshes = [];
   for (let i = 0; i < n; i++) {
-    const m = makeCarMesh(colorsFrom[i]);
+    const m = makeCarMesh(colorsFrom[i], numbers ? numbers[i] : i + 1);
     scene.add(m.root);
     game.meshes.push(m);
   }
@@ -104,7 +121,7 @@ function setCars(n, colorsFrom) {
 
 // A race with every car on autopilot, shown behind the title and lobby.
 function startDemo() {
-  loadTrack(settings.track);
+  loadTrack(trackIndex());
   game.race = new Race(game.track, 4, { laps: 999 });
   game.race.timer = 0.01;
   game.players = [];
@@ -141,20 +158,30 @@ function goLobby() {
 $('#btn-play').addEventListener('click', () => { audio.unlock(); audio.click(); goLobby(); });
 
 function buildLobby() {
-  const sel = $('#set-track');
-  TRACKS.forEach((t, i) => {
-    const o = document.createElement('option');
-    o.value = i;
-    o.textContent = t.name;
-    sel.appendChild(o);
-  });
-  sel.value = settings.track;
-  sel.addEventListener('change', () => {
-    settings.track = Number(sel.value);
-    save();
-    startDemo();
-    refreshLobby();
-  });
+  const list = $('#track-list');
+  for (const w of WORLDS) {
+    const h = document.createElement('div');
+    h.className = 'world-name';
+    h.textContent = w.name;
+    list.appendChild(h);
+    for (const t of TRACKS.filter((x) => x.world === w)) {
+      const b = document.createElement('button');
+      b.className = 'track-card';
+      b.dataset.id = t.id;
+      b.textContent = t.name;
+      b.addEventListener('click', () => {
+        audio.click();
+        b.blur();
+        if (settings.track === t.id) return;
+        settings.track = t.id;
+        settings.laps = t.laps;
+        save();
+        startDemo();
+        refreshLobby();
+      });
+      list.appendChild(b);
+    }
+  }
   const laps = $('#set-laps');
   for (let n = 1; n <= 5; n++) {
     const b = document.createElement('button');
@@ -192,7 +219,9 @@ function buildLobby() {
 }
 
 function refreshLobby() {
-  $('#set-track').value = settings.track;
+  document.querySelectorAll('.track-card').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.id === settings.track)));
+  const def = TRACKS[trackIndex()];
+  $('#track-blurb').textContent = `${def.world.name}: ${def.blurb || ''}`;
   [...$('#set-laps').children].forEach((b, k) => b.setAttribute('aria-pressed', String(k + 1 === settings.laps)));
   drawTrackPreview($('#track-preview'), game.track);
   for (const s of slots) {
@@ -219,25 +248,46 @@ function refreshLobby() {
 function drawTrackPreview(cv, track) {
   const ctx = cv.getContext('2d');
   const W = cv.width, H = cv.height;
-  const sx = W / HOUSE.size.x, sz = H / HOUSE.size.z, k = Math.min(sx, sz);
-  const ox = (W - HOUSE.size.x * k) / 2, oz = (H - HOUSE.size.z * k) / 2;
+  const world = track.world, size = world.size;
+  const k = Math.min(W / size.x, H / size.z);
+  const ox = (W - size.x * k) / 2, oz = (H - size.z * k) / 2;
+  const X = (x) => ox + x * k, Z = (z) => oz + z * k;
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = '#e7d7bd';
-  ctx.fillRect(ox, oz, HOUSE.size.x * k, HOUSE.size.z * k);
-  ctx.fillStyle = 'rgba(80,60,40,0.35)';
-  for (const b of HOUSE.boxes) ctx.fillRect(ox + b.min[0] * k, oz + b.min[2] * k, (b.max[0] - b.min[0]) * k, (b.max[2] - b.min[2]) * k);
-  ctx.lineWidth = track.width * k;
+  const look = world.def.look;
+  ctx.fillStyle = look.indoor ? '#e9c48f' : '#7cc95a';
+  ctx.fillRect(ox, oz, size.x * k, size.z * k);
+  ctx.fillStyle = '#4aaee6';
+  for (const w of world.water) {
+    ctx.beginPath();
+    if (w.r != null) ctx.arc(X(w.x), Z(w.z), w.r * k, 0, Math.PI * 2);
+    else ctx.rect(X(Math.max(0, w.min[0])), Z(Math.max(0, w.min[1])), (Math.min(size.x, w.max[0]) - Math.max(0, w.min[0])) * k, (Math.min(size.z, w.max[1]) - Math.max(0, w.min[1])) * k);
+    ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(70,40,20,0.35)';
+  for (const b of world.boxes) ctx.fillRect(X(b.min[0]), Z(b.min[2]), (b.max[0] - b.min[0]) * k, (b.max[2] - b.min[2]) * k);
+  for (const c of world.cyls) { ctx.beginPath(); ctx.arc(X(c.x), Z(c.z), Math.max(2, c.r * k), 0, Math.PI * 2); ctx.fill(); }
+  const path = () => {
+    ctx.beginPath();
+    track.samples.forEach((s, i) => (i ? ctx.lineTo(X(s.p.x), Z(s.p.z)) : ctx.moveTo(X(s.p.x), Z(s.p.z))));
+    ctx.closePath();
+  };
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = '#ff7a00';
-  ctx.beginPath();
-  track.samples.forEach((s, i) => (i ? ctx.lineTo(ox + s.p.x * k, oz + s.p.z * k) : ctx.moveTo(ox + s.p.x * k, oz + s.p.z * k)));
-  ctx.closePath();
+  ctx.lineWidth = track.width * k + 5;
+  ctx.strokeStyle = '#2b1c18';
+  path();
+  ctx.stroke();
+  ctx.lineWidth = track.width * k;
+  ctx.strokeStyle = track.color;
+  path();
   ctx.stroke();
   const f = track.frameAt(0);
-  ctx.fillStyle = '#111';
+  ctx.fillStyle = '#fff';
+  ctx.strokeStyle = '#2b1c18';
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(ox + f.p.x * k, oz + f.p.z * k, 4, 0, Math.PI * 2);
+  ctx.arc(X(f.p.x), Z(f.p.z), 6, 0, Math.PI * 2);
   ctx.fill();
+  ctx.stroke();
 }
 
 async function choose(i, src) {
@@ -337,9 +387,10 @@ function startRace() {
   if (!players.length) return;
   audio.unlock();
   game.players = players;
-  loadTrack(settings.track);
+  loadTrack(trackIndex());
   game.race = new Race(game.track, players.length, { laps: settings.laps });
-  setCars(players.length, players.map((p) => p.color));
+  setCars(players.length, players.map((p) => p.color), players.map((p) => p.index + 1));
+  effects.clear();
   views.setPlayers(players.length);
   game.acc = 0;
   game.paused = false;
@@ -368,7 +419,43 @@ function rumble(i, ms, strength) {
   if (c) c.rumble(ms, strength);
 }
 
+// Particles and bounces for race events (also used by the title-screen demo).
+function eventEffects(events) {
+  const cars = game.race.cars;
+  for (const e of events) {
+    const car = e.player != null ? cars[e.player] : null;
+    const mesh = e.player != null ? game.meshes[e.player] : null;
+    if (e.type === 'land' && car && e.impact > 40) {
+      effects.landing(car.pos, Math.min(1, e.impact / 250));
+      if (mesh) squashCar(mesh, Math.min(1, e.impact / 220));
+    } else if (e.type === 'splash' && e.pos) {
+      effects.splash(e.pos);
+    } else if (e.type === 'wall' && car && e.impact > 40) {
+      effects.sparks(car.pos, '#ffd34d', 4);
+    } else if (e.type === 'bump') {
+      const a = cars[e.a], b = cars[e.b];
+      effects.sparks({ x: (a.pos.x + b.pos.x) / 2, y: (a.pos.y + b.pos.y) / 2 + 2, z: (a.pos.z + b.pos.z) / 2 }, '#ffffff', 5);
+    }
+  }
+}
+
+// Ongoing effects: drift smoke and dust when driving off the track.
+function carEffects(dt) {
+  for (const car of game.race.cars) {
+    if (car.respawnTimer > 0 || !car.grounded) continue;
+    const f = car.fwd, u = car.up;
+    const side = { x: f.y * u.z - f.z * u.y, y: f.z * u.x - f.x * u.z, z: f.x * u.y - f.y * u.x };
+    const rate = car.drifting ? 40 : car.surface !== 'track' && Math.abs(car.speed) > 50 ? 16 : 0;
+    if (!rate || Math.random() > rate * dt) continue;
+    for (const s of [-1.7, 1.7]) {
+      const p = { x: car.pos.x - f.x * 2.6 + side.x * s + u.x * 0.6, y: car.pos.y - f.y * 2.6 + side.y * s + u.y * 0.6, z: car.pos.z - f.z * 2.6 + side.z * s + u.z * 0.6 };
+      effects.puff(p, car.drifting ? '#f2efe8' : game.track.world.def.look.indoor ? '#e8d6b8' : '#c9a66b', car.drifting ? 1.1 : 0.9, 10, 10);
+    }
+  }
+}
+
 function handleRaceEvents(events) {
+  eventEffects(events);
   for (const e of events) {
     switch (e.type) {
       case 'count': audio.beep(); game.players.forEach((_, i) => rumble(i, 40, 0.4)); break;
@@ -377,6 +464,7 @@ function handleRaceEvents(events) {
       case 'wall': audio.wall(e.impact); rumble(e.player, 35, Math.min(1, e.impact / 250)); break;
       case 'bump': audio.bump(); rumble(e.a, 60, 0.6); rumble(e.b, 60, 0.6); break;
       case 'fell': audio.fall(); rumble(e.player, 300, 1); flash(e.player, 'Oops!', 1200, 'small'); break;
+      case 'splash': audio.splash(); rumble(e.player, 350, 1); flash(e.player, 'Splash!', 1200, 'small'); break;
       case 'lap':
         audio.lap(e.final);
         flash(e.player, e.final ? 'Final lap!' : `Lap ${e.lap}`, 1400, 'small');
@@ -406,7 +494,9 @@ function updateRace(dt, reads) {
   if (game.paused) return;
   const step = 1 / CFG.SIM_HZ;
   game.acc = Math.min(game.acc + dt, 0.25);
-  const inputs = game.players.map((p) => raceInput(reads[p.index] || { steer: 0, throttle: 0, brakeHeld: false }));
+  const inputs = params.has('autodrive')
+    ? game.race.cars.map((c) => autopilot(c, game.track))
+    : game.players.map((p) => raceInput(reads[p.index] || { steer: 0, throttle: 0, brakeHeld: false }));
   while (game.acc >= step) {
     handleRaceEvents(game.race.step(step, inputs));
     game.acc -= step;
@@ -519,26 +609,60 @@ function drawMinimap() {
   const ox = (cv.width - (B.x1 - B.x0) * k) / 2, oz = (cv.height - (B.z1 - B.z0) * k) / 2;
   const X = (x) => ox + (x - B.x0) * k, Z = (z) => oz + (z - B.z0) * k;
   ctx.clearRect(0, 0, cv.width, cv.height);
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillStyle = 'rgba(255,250,240,0.85)';
+  ctx.strokeStyle = '#2b1c18';
+  ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.roundRect(0, 0, cv.width, cv.height, 12);
+  ctx.roundRect(1.5, 1.5, cv.width - 3, cv.height - 3, 14);
   ctx.fill();
-  ctx.lineWidth = 6;
+  ctx.stroke();
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = '#ff9a3c';
-  ctx.beginPath();
-  T.samples.forEach((s, i) => (i ? ctx.lineTo(X(s.p.x), Z(s.p.z)) : ctx.moveTo(X(s.p.x), Z(s.p.z))));
-  ctx.closePath();
+  const path = () => {
+    ctx.beginPath();
+    T.samples.forEach((s, i) => (i ? ctx.lineTo(X(s.p.x), Z(s.p.z)) : ctx.moveTo(X(s.p.x), Z(s.p.z))));
+    ctx.closePath();
+  };
+  ctx.lineWidth = 9;
+  ctx.strokeStyle = '#2b1c18';
+  path();
+  ctx.stroke();
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = T.color;
+  path();
   ctx.stroke();
   game.race.cars.forEach((c, i) => {
     ctx.fillStyle = game.players[i] ? game.players[i].color.body : '#fff';
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#2b1c18';
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.arc(X(c.pos.x), Z(c.pos.z), 5, 0, Math.PI * 2);
+    ctx.arc(X(c.pos.x), Z(c.pos.z), 6, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
   });
+}
+
+// Slowly circling overview; indoors it stays inside the room.
+function orbitCam(dt) {
+  const c = game.trackCenter, look = game.track.world.def.look;
+  if (look.indoor) {
+    const S = game.track.world.size;
+    views.orbit(c, 1, dt, 0);
+    const a = views.time * 0.12;
+    const x = Math.min(S.x - 40, Math.max(40, c.x + Math.cos(a) * (c.r + 60)));
+    const z = Math.min(S.z - 40, Math.max(40, c.z + Math.sin(a) * (c.r + 60)));
+    views.overview.position.set(x, 175, z);
+    views.overview.lookAt(c.x, 0, c.z);
+  } else if (look.orbit) {
+    // swing back and forth over the open side of the world
+    views.time += dt;
+    const [a0, a1] = look.orbit.arc;
+    const a = ((a0 + a1) / 2 + ((a1 - a0) / 2) * Math.sin(views.time * 0.1)) * Math.PI / 180;
+    const R = look.orbit.radius;
+    views.overview.position.set(c.x + Math.cos(a) * R, look.orbit.height, c.z + Math.sin(a) * R);
+    views.overview.lookAt(c.x, 0, c.z);
+  } else {
+    views.orbit(c, Math.max(300, c.r * 1.25), dt, 0.55);
+  }
 }
 
 // Keep the phones' screens up to date.
@@ -577,11 +701,11 @@ function frame(now) {
     // demo race in the background
     game.acc = Math.min(game.acc + dt, 0.25);
     while (game.acc >= step) {
-      game.race.step(step, game.race.cars.map((c) => autopilot(c, game.track)));
+      eventEffects(game.race.step(step, game.race.cars.map((c) => autopilot(c, game.track))));
       game.acc -= step;
     }
     if (game.state === 'lobby') updateLobby(dt, reads);
-    views.orbit({ x: game.trackCenter.x, z: game.trackCenter.z }, 420, dt);
+    orbitCam(dt);
   } else if (game.state === 'race') {
     updateRace(dt, reads);
   } else if (game.state === 'results') {
@@ -590,13 +714,17 @@ function frame(now) {
     if (performance.now() - game.resultsShownAt > 2000 && reads.some((r) => r && r.presses.gas > 0)) startRace();
   }
 
-  game.race.cars.forEach((c, i) => game.meshes[i] && updateCarMesh(game.meshes[i], c, game.paused ? 0 : dt));
+  const live = game.paused ? 0 : dt;
+  clock += live;
+  if (game.world) game.world.update(clock, live);
+  if (live) { carEffects(live); effects.update(live); }
+  game.race.cars.forEach((c, i) => game.meshes[i] && updateCarMesh(game.meshes[i], c, live));
   if (game.state === 'race' || game.state === 'results') {
     game.race.cars.forEach((c, i) => {
       views.follow(i, c, dt);
       audio.engine(i, c.speed, game.state === 'race' && reads[game.players[i].index] ? reads[game.players[i].index].throttle : 0);
     });
-    if (game.players.length === 3) views.orbit({ x: game.trackCenter.x, z: game.trackCenter.z }, 380, dt);
+    if (game.players.length === 3) orbitCam(dt);
     views.render();
     updateHud();
   } else {
@@ -618,11 +746,25 @@ buildLobby();
 resize();
 goTitle();
 if (params.has('debug')) show('#fps', true);
-// ?autotest=N starts an N-player race straight away (keyboard players) for testing.
+// ?track=<id> picks a track; ?autotest=N starts an N-player race straight
+// away (keyboard players) for testing.
+if (params.has('track') && TRACKS.some((t) => t.id === params.get('track'))) {
+  settings.track = params.get('track');
+  startDemo();
+}
 if (params.has('autotest')) {
   const n = Math.max(1, Math.min(4, Number(params.get('autotest')) || 2));
   for (let i = 0; i < n; i++) slots[i].controller = new KeyboardController(i % 2 ? 'arrows' : 'wasd');
   startRace();
 }
 requestAnimationFrame(frame);
-window.CR = { game, slots, startRace, goLobby, views, renderer, settings };
+// Testing aid: fast-forward the current race with every car on autopilot.
+function fastForward(seconds) {
+  const step = 1 / CFG.SIM_HZ;
+  for (let t = 0; t < seconds; t += step) {
+    eventEffects(game.race.step(step, game.race.cars.map((c) => autopilot(c, game.track))));
+    for (const [i, c] of game.race.cars.entries()) if (game.meshes[i]) updateCarMesh(game.meshes[i], c, step);
+    if (game.state === 'race') game.race.cars.forEach((c, i) => views.follow(i, c, step));
+  }
+}
+window.CR = { game, slots, startRace, goLobby, views, renderer, settings, scene, effects, fastForward };

@@ -5,7 +5,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
@@ -212,12 +211,27 @@ class PadView(context: Context, private val config: PadConfig) : View(context) {
         invalidate()
     }
 
-    // ---- drawing ---------------------------------------------------------------------
+    // ---- drawing (cartoon style: chunky buttons, ink outlines, Lilita One) ---------
+    private val ink = Color.rgb(43, 28, 24)
+    private val cream = Color.rgb(255, 250, 240)
+    private val font: Typeface = runCatching { context.resources.getFont(R.font.lilita_one) }
+        .getOrDefault(Typeface.create("sans-serif-black", Typeface.NORMAL))
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
+    }
     private val bold = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
+        typeface = font
         textAlign = Paint.Align.CENTER
+    }
+    private val outlineText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = font
+        textAlign = Paint.Align.CENTER
+        style = Paint.Style.STROKE
+        strokeJoin = Paint.Join.ROUND
+        color = Color.rgb(43, 28, 24)
     }
     private val body = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
@@ -226,17 +240,69 @@ class PadView(context: Context, private val config: PadConfig) : View(context) {
     private val tmp = RectF()
 
     private fun alpha(c: Int, a: Int) = Color.argb(a.coerceIn(0, 255), Color.red(c), Color.green(c), Color.blue(c))
+    private fun lighten(c: Int, f: Float) = Color.rgb(
+        (Color.red(c) + (255 - Color.red(c)) * f).toInt(),
+        (Color.green(c) + (255 - Color.green(c)) * f).toInt(),
+        (Color.blue(c) + (255 - Color.blue(c)) * f).toInt(),
+    )
+
+    /** Big cartoon text: white (or [color]) with a thick ink outline. */
+    private fun cartoonText(c: Canvas, text: String, x: Float, y: Float, size: Float, color: Int = Color.WHITE, align: Paint.Align = Paint.Align.CENTER) {
+        outlineText.textSize = size
+        outlineText.strokeWidth = size * 0.2f
+        outlineText.textAlign = align
+        bold.textSize = size
+        bold.color = color
+        bold.textAlign = align
+        c.drawText(text, x, y, outlineText)
+        c.drawText(text, x, y, bold)
+        bold.textAlign = Paint.Align.CENTER
+    }
+
+    /** A chunky button: ink drop shadow, coloured face, ink outline, glossy top. */
+    private fun chunky(c: Canvas, r: RectF, color: Int, pressed: Boolean, radius: Float, depth: Float = 6 * dp) {
+        val sink = if (pressed) depth * 0.8f else 0f
+        tmp.set(r.left, r.top + depth, r.right, r.bottom)
+        fill.color = ink
+        c.drawRoundRect(tmp, radius, radius, fill)
+        tmp.set(r.left, r.top + sink, r.right, r.bottom - depth + sink)
+        fill.color = color
+        c.drawRoundRect(tmp, radius, radius, fill)
+        val gloss = RectF(tmp.left + radius * 0.5f, tmp.top + 5 * dp, tmp.right - radius * 0.5f, tmp.top + 5 * dp + min(14 * dp, tmp.height() * 0.12f))
+        fill.color = Color.argb(70, 255, 255, 255)
+        c.drawRoundRect(gloss, gloss.height() / 2, gloss.height() / 2, fill)
+        stroke.color = ink
+        stroke.strokeWidth = 3.5f * dp
+        c.drawRoundRect(tmp, radius, radius, stroke)
+    }
+
+    private fun actionColor(a: Action) = when (a) {
+        Action.GAS -> Color.rgb(63, 174, 58)
+        Action.BRAKE -> Color.rgb(232, 71, 59)
+        Action.BOOST -> Color.rgb(222, 196, 120)
+        Action.ITEM -> Color.rgb(176, 160, 200)
+        Action.STEER_STICK, Action.STEER_LEFT, Action.STEER_RIGHT -> Color.rgb(47, 134, 201)
+        Action.NONE -> Color.TRANSPARENT
+    }
 
     override fun onDraw(c: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
-        fill.shader = LinearGradient(0f, 0f, 0f, h, Color.rgb(34, 30, 44), Color.rgb(20, 18, 26), Shader.TileMode.CLAMP)
+        val top = if (playerIndex >= 0) lighten(playerColor, 0.55f) else Color.rgb(143, 211, 255)
+        val bottom = if (playerIndex >= 0) lighten(playerColor, 0.25f) else Color.rgb(94, 180, 240)
+        fill.shader = LinearGradient(0f, 0f, 0f, h, top, bottom, Shader.TileMode.CLAMP)
         c.drawRect(0f, 0f, w, h, fill)
         fill.shader = null
-        if (playerIndex >= 0) {
-            fill.shader = RadialGradient(w / 2, h * 1.1f, w * 0.65f, alpha(playerColor, 70), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-            c.drawRect(0f, 0f, w, h, fill)
-            fill.shader = null
+        // cartoon polka dots
+        fill.color = Color.argb(28, 255, 255, 255)
+        val step = 46 * dp
+        var row = 0
+        var y = step / 2
+        while (y < h) {
+            var x = if (row % 2 == 0) step / 2 else step
+            while (x < w) { c.drawCircle(x, y, 7 * dp, fill); x += step }
+            y += step * 0.75f
+            row++
         }
         drawZones(c)
         drawTopBar(c)
@@ -246,43 +312,46 @@ class PadView(context: Context, private val config: PadConfig) : View(context) {
     private fun drawZones(c: Canvas) {
         zones.forEachIndexed { i, r ->
             val action = config.actions.getOrNull(i) ?: Action.NONE
-            val pressed = pointers.values.any { it.zone == i } || (action == Action.GAS && config.autoGas && state.gasHeld)
-            tmp.set(r.left + 4 * dp, r.top + 4 * dp, r.right - 4 * dp, r.bottom - 4 * dp)
-            fill.color = if (pressed) alpha(playerColor, 110) else Color.argb(18, 255, 255, 255)
-            c.drawRoundRect(tmp, 22 * dp, 22 * dp, fill)
-            stroke.color = if (pressed) alpha(playerColor, 255) else Color.argb(60, 255, 255, 255)
-            stroke.strokeWidth = 2.5f * dp
-            c.drawRoundRect(tmp, 22 * dp, 22 * dp, stroke)
             if (action == Action.NONE) return@forEachIndexed
-            bold.textSize = min(30 * dp, r.width() / 7f)
-            bold.color = if (pressed) Color.WHITE else Color.argb(170, 255, 255, 255)
+            val pressed = pointers.values.any { it.zone == i } || (action == Action.GAS && config.autoGas && state.gasHeld)
+            val face = RectF(r.left + 7 * dp, r.top + 7 * dp, r.right - 7 * dp, r.bottom - 7 * dp)
+            val col = actionColor(action)
+            chunky(c, face, if (pressed) lighten(col, 0.25f) else col, pressed, 28 * dp, 8 * dp)
+            val sink = if (pressed) 6.4f * dp else 0f
+            val cy = face.centerY() - 4 * dp + sink
             val label = when (action) {
                 Action.STEER_LEFT -> "◀"
                 Action.STEER_RIGHT -> "▶"
                 else -> action.label
             }
-            c.drawText(label, r.centerX(), r.centerY() + bold.textSize / 3, bold)
+            val size = min(40 * dp, face.width() / 6.2f)
+            cartoonText(c, label, face.centerX(), cy + size / 3, size)
             val hint = when (action) {
                 Action.GAS -> if (config.autoGas) "auto-gas is on" else "hold to drive"
                 Action.BRAKE -> "hold with gas to drift"
-                Action.BOOST, Action.ITEM -> "coming later"
+                Action.BOOST, Action.ITEM -> "coming soon!"
                 Action.STEER_STICK -> "drag left / right"
                 else -> null
             }
             if (hint != null) {
-                body.textSize = 12 * dp
-                body.color = Color.argb(110, 255, 255, 255)
-                c.drawText(hint, r.centerX(), r.centerY() + bold.textSize / 3 + 20 * dp, body)
+                body.textSize = 13 * dp
+                body.color = Color.argb(215, 255, 255, 255)
+                c.drawText(hint, face.centerX(), cy + size / 3 + 24 * dp, body)
             }
             // live joystick
             if (action == Action.STEER_STICK) {
                 for (t in pointers.values) {
                     if (t.zone != i) continue
-                    val cy = r.centerY() + r.height() * 0.22f
-                    stroke.color = Color.argb(120, 255, 255, 255)
-                    c.drawLine(t.x0 - stickR, cy, t.x0 + stickR, cy, stroke)
+                    val sy = face.centerY() + face.height() * 0.24f
+                    stroke.color = Color.argb(160, 255, 255, 255)
+                    stroke.strokeWidth = 6 * dp
+                    c.drawLine(t.x0 - stickR, sy, t.x0 + stickR, sy, stroke)
+                    val kx = t.x0 + ((t.x - t.x0).coerceIn(-stickR, stickR))
                     fill.color = playerColor
-                    c.drawCircle(t.x0 + ((t.x - t.x0).coerceIn(-stickR, stickR)), cy, 22 * dp, fill)
+                    c.drawCircle(kx, sy, 24 * dp, fill)
+                    stroke.color = ink
+                    stroke.strokeWidth = 3.5f * dp
+                    c.drawCircle(kx, sy, 24 * dp, stroke)
                 }
             }
         }
@@ -293,38 +362,45 @@ class PadView(context: Context, private val config: PadConfig) : View(context) {
         val midY = (safe.top + topBottom) / 2
         // connection pill
         val (dot, label) = when (val s = connection) {
-            is BleControllerServer.Status.Connected -> if (playerIndex >= 0) playerColor to "P${playerIndex + 1}" else Color.rgb(92, 196, 97) to "CONNECTED"
-            is BleControllerServer.Status.Advertising -> Color.rgb(255, 205, 69) to "WAITING FOR GAME"
-            is BleControllerServer.Status.Error -> Color.rgb(255, 90, 74) to "BLUETOOTH PROBLEM"
+            is BleControllerServer.Status.Connected -> if (playerIndex >= 0) playerColor to "P${playerIndex + 1}" else Color.rgb(63, 174, 58) to "CONNECTED"
+            is BleControllerServer.Status.Advertising -> Color.rgb(255, 210, 63) to "WAITING FOR GAME"
+            is BleControllerServer.Status.Error -> Color.rgb(232, 71, 59) to "BLUETOOTH PROBLEM"
             BleControllerServer.Status.Off -> Color.GRAY to "BLUETOOTH OFF"
         }
-        bold.textSize = 15 * dp
-        bold.textAlign = Paint.Align.LEFT
-        val pillH = 36 * dp
+        val pillH = 40 * dp
         val left = safe.left + 14 * dp
-        tmp.set(left, midY - pillH / 2, left + bold.measureText(label) + 46 * dp, midY + pillH / 2)
-        fill.color = if (playerIndex >= 0) playerColor else Color.argb(40, 255, 255, 255)
-        c.drawRoundRect(tmp, pillH / 2, pillH / 2, fill)
+        bold.textSize = 19 * dp
+        val pill = RectF(left, midY - pillH / 2, left + bold.measureText(label) + 52 * dp, midY + pillH / 2)
+        chunky(c, pill, if (playerIndex >= 0) playerColor else cream, false, pillH / 2, 4 * dp)
         fill.color = if (playerIndex >= 0) Color.WHITE else dot
-        c.drawCircle(left + 18 * dp, midY, 6 * dp, fill)
-        bold.color = Color.WHITE
-        c.drawText(label, left + 32 * dp, midY + 5.5f * dp, bold)
-        bold.textAlign = Paint.Align.CENTER
+        c.drawCircle(left + 20 * dp, midY - 2 * dp, 7 * dp, fill)
+        stroke.color = ink
+        stroke.strokeWidth = 2.5f * dp
+        c.drawCircle(left + 20 * dp, midY - 2 * dp, 7 * dp, stroke)
+        if (playerIndex >= 0) cartoonText(c, label, left + 36 * dp, midY + 5 * dp, 19 * dp, Color.WHITE, Paint.Align.LEFT)
+        else {
+            bold.textAlign = Paint.Align.LEFT
+            bold.color = ink
+            c.drawText(label, left + 36 * dp, midY + 5 * dp, bold)
+            bold.textAlign = Paint.Align.CENTER
+        }
 
         // steering indicator (a little wheel that turns with your steering)
-        val wheelX = tmp.right + 40 * dp
-        val rr = 15 * dp
+        val wheelX = pill.right + 44 * dp
+        val rr = 16 * dp
         c.save()
-        c.rotate(state.steer * 90f, wheelX, midY)
-        stroke.color = Color.WHITE
-        stroke.strokeWidth = 3 * dp
-        c.drawCircle(wheelX, midY, rr, stroke)
-        c.drawLine(wheelX - rr, midY, wheelX + rr, midY, stroke)
-        c.drawLine(wheelX, midY, wheelX, midY + rr, stroke)
+        c.rotate(state.steer * 90f, wheelX, midY - 2 * dp)
+        fill.color = cream
+        c.drawCircle(wheelX, midY - 2 * dp, rr, fill)
+        stroke.color = ink
+        stroke.strokeWidth = 4 * dp
+        c.drawCircle(wheelX, midY - 2 * dp, rr, stroke)
+        c.drawLine(wheelX - rr, midY - 2 * dp, wheelX + rr, midY - 2 * dp, stroke)
+        c.drawLine(wheelX, midY - 2 * dp, wheelX, midY - 2 * dp + rr, stroke)
         c.restore()
         body.textSize = 10 * dp
-        body.color = Color.argb(150, 255, 255, 255)
-        c.drawText(if (config.tilt) "TILT" else "TOUCH", wheelX, midY + rr + 12 * dp, body)
+        body.color = ink
+        c.drawText(if (config.tilt) "TILT" else "TOUCH", wheelX, midY + rr + 10 * dp, body)
 
         // race info in the middle
         val r = race
@@ -338,35 +414,38 @@ class PadView(context: Context, private val config: PadConfig) : View(context) {
                 RaceStatus.PAUSED -> "Paused" to ""
                 else -> "" to ""
             }
-            bold.textSize = 24 * dp
-            bold.color = if (r.state == RaceStatus.LOBBY && r.ready) Color.rgb(120, 230, 120) else Color.WHITE
-            c.drawText(big, w / 2, midY + 4 * dp, bold)
-            body.textSize = 12 * dp
-            body.color = Color.argb(170, 255, 255, 255)
-            c.drawText(small, w / 2, midY + 20 * dp, body)
+            val bigColor = when {
+                r.state == RaceStatus.LOBBY && r.ready -> Color.rgb(120, 230, 120)
+                r.state == RaceStatus.RACING || r.state == RaceStatus.FINISHED -> Color.rgb(255, 210, 63)
+                else -> Color.WHITE
+            }
+            cartoonText(c, big, w / 2, midY + 6 * dp, 28 * dp, bigColor)
+            body.textSize = 13 * dp
+            body.color = ink
+            c.drawText(small, w / 2, midY + 24 * dp, body)
         }
 
         // pause + settings buttons
         for ((b, isPause) in listOf(pauseBtn to true, settingsBtn to false)) {
-            fill.color = Color.argb(40, 255, 255, 255)
-            c.drawRoundRect(b, 12 * dp, 12 * dp, fill)
-            fill.color = Color.WHITE
-            stroke.color = Color.WHITE
-            stroke.strokeWidth = 2.5f * dp
+            chunky(c, b, cream, false, 14 * dp, 4 * dp)
+            val cyB = b.centerY() - 2 * dp
+            fill.color = ink
+            stroke.color = ink
+            stroke.strokeWidth = 3 * dp
             if (isPause) {
                 val bw = b.width() * 0.13f
-                val bh = b.height() * 0.42f
-                tmp.set(b.centerX() - bw * 1.8f, b.centerY() - bh / 2, b.centerX() - bw * 0.6f, b.centerY() + bh / 2)
+                val bh = b.height() * 0.4f
+                tmp.set(b.centerX() - bw * 1.8f, cyB - bh / 2, b.centerX() - bw * 0.6f, cyB + bh / 2)
                 c.drawRoundRect(tmp, bw / 2, bw / 2, fill)
-                tmp.set(b.centerX() + bw * 0.6f, b.centerY() - bh / 2, b.centerX() + bw * 1.8f, b.centerY() + bh / 2)
+                tmp.set(b.centerX() + bw * 0.6f, cyB - bh / 2, b.centerX() + bw * 1.8f, cyB + bh / 2)
                 c.drawRoundRect(tmp, bw / 2, bw / 2, fill)
             } else {
                 val l = b.left + b.width() * 0.26f
                 val rgt = b.right - b.width() * 0.26f
-                listOf(0.32f, 0.5f, 0.68f).forEachIndexed { k, f ->
-                    val y = b.top + b.height() * f
-                    c.drawLine(l, y, rgt, y, stroke)
-                    c.drawCircle(l + (rgt - l) * listOf(0.7f, 0.3f, 0.55f)[k], y, 3.5f * dp, fill)
+                listOf(-0.18f, 0f, 0.18f).forEachIndexed { k, f ->
+                    val yy = cyB + b.height() * f
+                    c.drawLine(l, yy, rgt, yy, stroke)
+                    c.drawCircle(l + (rgt - l) * listOf(0.7f, 0.3f, 0.55f)[k], yy, 3.5f * dp, fill)
                 }
             }
         }
@@ -385,14 +464,13 @@ class PadView(context: Context, private val config: PadConfig) : View(context) {
         }
         if (lines.isEmpty()) return
         body.textSize = 15 * dp
-        val bw = lines.maxOf { body.measureText(it) } + 40 * dp
-        val bh = lines.size * 24 * dp + 20 * dp
+        val bw = lines.maxOf { body.measureText(it) } + 44 * dp
+        val bh = lines.size * 24 * dp + 30 * dp
         val cx = width / 2f
         val top = topBottom + 16 * dp
         helpBox.set(cx - bw / 2, top, cx + bw / 2, top + bh)
-        fill.color = Color.argb(215, 10, 8, 18)
-        c.drawRoundRect(helpBox, 16 * dp, 16 * dp, fill)
-        body.color = Color.WHITE
+        chunky(c, helpBox, cream, false, 18 * dp, 6 * dp)
+        body.color = ink
         lines.forEachIndexed { k, line -> c.drawText(line, cx, top + 30 * dp + k * 24 * dp, body) }
     }
 

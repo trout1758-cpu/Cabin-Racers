@@ -111,6 +111,11 @@ export class Audio {
   wall(impact) { this.hiss(0.18, Math.min(0.2, impact / 900), 2400, 900); }
   bump() { this.tone(180, 0.1, 0.15, 'triangle', 0, 90); }
   fall() { this.tone(700, 0.6, 0.08, 'triangle', 0, 120); }
+  splash() {
+    this.hiss(0.5, 0.22, 1400, 300);
+    [0, 0.07, 0.15, 0.22].forEach((at, i) => this.tone(500 + i * 140, 0.09, 0.07, 'sine', at, 900 + i * 160));
+  }
+  boing() { this.tone(220, 0.25, 0.1, 'sine', 0, 520); }
   lap(final) { [784, 988, final ? 1319 : 1175].forEach((f, i) => this.tone(f, 0.12, 0.08, 'triangle', i * 0.08)); }
   finish(place) {
     const notes = place === 1 ? [523, 659, 784, 1047, 1319] : [523, 659, 784];
