@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Toy race car from the side, on the 108dp adaptive-icon canvas. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#E23B2E" android:pathData="M26,62 L30,52 L44,50 L52,42 L68,42 L76,50 L84,52 L86,62 Z" />
+    <path android:fillColor="#1A2533" android:pathData="M54,45 L66,45 L71,50 L49,50 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M28,56 L84,56 L84,58 L28,58 Z" />
+    <path android:fillColor="#17171A" android:pathData="M40,63m-7,0a7,7 0 1,1 14,0a7,7 0 1,1 -14,0" />
+    <path android:fillColor="#17171A" android:pathData="M74,63m-7,0a7,7 0 1,1 14,0a7,7 0 1,1 -14,0" />
+    <path android:fillColor="#DFE3E8" android:pathData="M40,63m-3,0a3,3 0 1,1 6,0a3,3 0 1,1 -6,0" />
+    <path android:fillColor="#DFE3E8" android:pathData="M74,63m-3,0a3,3 0 1,1 6,0a3,3 0 1,1 -6,0" />
+</vector>

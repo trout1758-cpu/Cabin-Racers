@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cabin Racers</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23ff7a00'/%3E%3Cpath d='M10 40l6-10h22l8 6h8v8H10z' fill='%23e23b2e'/%3E%3Ccircle cx='20' cy='44' r='6' fill='%23222'/%3E%3Ccircle cx='46' cy='44' r='6' fill='%23222'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <div id="hud"></div>
+  <canvas id="minimap" width="220" height="160" class="hidden"></canvas>
+
+  <section id="screen-title" class="screen">
+    <div class="title-card">
+      <h1 class="logo"><span>Cabin</span><span>Racers</span></h1>
+      <p class="tagline">Toy-car racing all over the house · up to 4 players</p>
+      <button class="btn big" id="btn-play">Play</button>
+      <p class="hint">Controllers: the <b>Racer Pad</b> Android app over Bluetooth, keyboards, or gamepads.</p>
+    </div>
+  </section>
+
+  <section id="screen-lobby" class="screen hidden">
+    <div class="lobby">
+      <div class="race-setup panel">
+        <h2>Race setup</h2>
+        <label class="row">Track
+          <select id="set-track"></select>
+        </label>
+        <canvas id="track-preview" width="360" height="240"></canvas>
+        <label class="row">Laps
+          <span class="seg" id="set-laps"></span>
+        </label>
+        <button class="btn big" id="btn-start" disabled>Start race</button>
+        <p class="hint" id="start-hint"></p>
+      </div>
+      <div class="slots" id="slots"></div>
+    </div>
+    <p class="note" id="ble-note"></p>
+  </section>
+
+  <section id="screen-pause" class="screen dim hidden">
+    <div class="panel center">
+      <h2>Paused</h2>
+      <p class="pause-reason"></p>
+      <button class="btn" id="btn-resume">Resume</button>
+      <button class="btn ghost" id="btn-quit">Quit to lobby</button>
+    </div>
+  </section>
+
+  <section id="screen-results" class="screen dim hidden">
+    <div class="panel center results">
+      <h2>Results</h2>
+      <table id="results-table"></table>
+      <button class="btn" id="btn-again">Race again</button>
+      <button class="btn ghost" id="btn-lobby">Lobby</button>
+      <p class="hint">Press gas on any controller to race again.</p>
+    </div>
+  </section>
+
+  <div id="toasts"></div>
+  <div id="fps" class="hidden"></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
